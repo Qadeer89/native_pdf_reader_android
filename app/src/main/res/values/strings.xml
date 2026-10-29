@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PDF Reader</string>
+    <string name="reader_loading">Opening document…</string>
+    <string name="reader_page_label">Page %1$d of %2$d</string>
+</resources>
