@@ -25,6 +25,12 @@ Room's annotation processor runs via `org.jetbrains.kotlin.kapt` (bundled with t
 
 Android `android.graphics.pdf.PdfRenderer` is a platform API, not a separate dependency — no separate license entry required (Android Open Source Project, Apache-2.0, bundled with the OS).
 
+## Under evaluation (testImplementation only — not shipped in the app)
+
+| Dependency | Version | License | Source | Purpose | Notes |
+|---|---|---|---|---|---|
+| PDFBox-Android | 2.0.27.0 | Apache-2.0 | [TomRoush/PdfBox-Android](https://github.com/TomRoush/PdfBox-Android) (Android port of Apache PDFBox) | Phase 3 engine POC (annotate/save/reopen, merge, encrypted-PDF handling) — see `docs/DECISIONS_AND_OPEN_QUESTIONS.md` DEC-001, `planning/ADR.md` ADR-009 | **Maintenance caution**: latest release dated 2023-01-02 (~3.5 years stale as of this writing), 113 open issues / 12 open PRs at time of check. License is clean; freshness is not. Scoped to `testImplementation` in `app/build.gradle.kts` specifically so it cannot ship until DEC-001 is approved. |
+
 ## Planned, not yet added (re-verify version/license before adding)
 
 | Dependency | Candidate purpose | Phase | Status |
@@ -32,10 +38,11 @@ Android `android.graphics.pdf.PdfRenderer` is a platform API, not a separate dep
 | Hilt | DI once module count grows | Phase 2+ | Deferred per ADR-003 |
 | DataStore | Preferences (no secrets) | Phase 2 | Not yet selected version |
 | WorkManager | Background sync | Phase 5 | Not yet selected version |
-| Commercial PDF SDK (e.g. Apryse, Nutrient) or vetted OSS combination | Annotation/page-ops/forms/signing | Phase 3/4, gated | **Not selected** — requires POC, license review, and legal sign-off per `docs/ARCHITECTURE.md` §2 before adding. Do not add to the build until that gate passes. |
-| iText | Possible PDF manipulation | Gated | AGPLv3/commercial — requires legal review before any use; not added |
+| Apryse / Nutrient (commercial PDF SDKs) | Annotation/page-ops/forms/signing, alternative to PDFBox-Android | Phase 3/4, gated | **Not actionable by this agent** — quote-only pricing, requires a sales/trial engagement the user would need to initiate themselves. See DEC-001. |
+| iText | Possible PDF manipulation | Gated | AGPLv3/commercial — AGPL incompatible with a closed-source app without disclosing full source; commercial tier is quote-only. Requires legal/business review before any use; not added. See DEC-001. |
 | Firebase Auth / Cloud Storage / Firestore | Cloud identity/sync | Phase 5, gated | Not added; requires cloud provider decision (open question) |
 | Android Keystore APIs | App-managed key protection | Phase 4 | Platform API, no new dependency, but design/review required before use |
+| BouncyCastle (or equivalent vetted crypto provider) | Certificate-based PDF signing (PDF-008), likely paired with whichever PDF engine is selected | Phase 4, gated | Not evaluated yet — explicitly out of scope for this POC pass; docs/SECURITY_PRIVACY.md §5 requires a vetted library, never custom crypto |
 
 ## Governance notes
 - All versions above are pinned via a Gradle version catalog (`gradle/libs.versions.toml`); no `+` ranges.

@@ -80,6 +80,11 @@ dependencies {
     testImplementation(libs.androidx.test.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.androidx.room.testing)
+    // POC-only (not a production dependency): evaluating PDFBox-Android for the gated
+    // PDF-engine decision (docs/ARCHITECTURE.md §2, planning/ADR.md ADR-002/ADR-009).
+    // Deliberately scoped to testImplementation so it never ships in the app until that
+    // decision is actually approved.
+    testImplementation(libs.pdfbox.android)
 
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.junit)

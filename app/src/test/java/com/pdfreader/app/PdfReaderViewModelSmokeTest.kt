@@ -3,6 +3,7 @@ package com.pdfreader.app
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
+import androidx.lifecycle.ViewModelStore
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.pdfreader.app.data.documents.DocumentMetadata
@@ -18,6 +19,7 @@ import com.pdfreader.app.reader.PageLayoutMode
 import com.pdfreader.app.reader.ReaderUiState
 import com.pdfreader.app.reader.ReaderViewModel
 import kotlinx.coroutines.test.runTest
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -54,17 +56,40 @@ private const val FAKE_RENDER_HEIGHT = 500
 @Config(sdk = [34])
 class PdfReaderViewModelSmokeTest {
 
+    /**
+     * [ReaderViewModel.recentDocuments] stays subscribed to its Room `Flow` for as long as
+     * `viewModelScope` is alive. Unlike production (where the Activity/ViewModelProvider owns
+     * that lifecycle), nothing here calls `ViewModel.clear()` unless we do it ourselves — so a
+     * plain in-memory Room database created in a test and then closed out from under a still-
+     * running collector logs a Robolectric `CloseGuard` resource-leak warning (harmless to test
+     * results, but noisy, and worth tearing down properly rather than leaving dangling). Each
+     * ViewModel built by [newViewModel] is registered in this store so [tearDown] can clear it
+     * (cancelling its `viewModelScope`) before the matching database is closed.
+     */
+    private val viewModelStore = ViewModelStore()
+    private val openDatabases = mutableListOf<RecentDocumentsDatabase>()
+
+    @After
+    fun tearDown() {
+        viewModelStore.clear()
+        openDatabases.forEach { it.close() }
+        openDatabases.clear()
+    }
+
     /** Builds a [ReaderViewModel] with a real (in-memory) recents DB and a fake metadata resolver. */
     private fun newViewModel(context: Context, engine: PdfEngine): ReaderViewModel {
         val db = Room.inMemoryDatabaseBuilder(context, RecentDocumentsDatabase::class.java)
             .allowMainThreadQueries()
             .build()
-        return ReaderViewModel(
+        openDatabases += db
+        val viewModel = ReaderViewModel(
             pdfEngine = engine,
             assetPdfCopier = AssetPdfCopier(context, ioDispatcher = kotlinx.coroutines.Dispatchers.Unconfined),
             recentDocumentsRepository = RecentDocumentsRepository(db.recentDocumentDao()),
             metadataResolver = FakeDocumentMetadataResolver(),
         )
+        viewModelStore.put(db.hashCode().toString(), viewModel)
+        return viewModel
     }
 
     @Test

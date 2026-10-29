@@ -24,11 +24,14 @@ Tracks concrete work items against `docs/IMPLEMENTATION_PLAN.md` phases and `doc
 - [ ] **Blocked**: text search with match navigation and result count. — PDF-003. `android.graphics.pdf.PdfRenderer` has no text-extraction/search API at all (bitmap rendering only) — this needs the same gated PDF-engine decision as annotations/signing (docs/ARCHITECTURE.md §2, planning/ADR.md ADR-002). Not started; no stub added.
 - [ ] Lifecycle/process-death state restoration tests. — PDF-002, PDF-012 (Compose `rememberSaveable` covers in-process rotation for zoom state only; full document-state restoration after process death not yet implemented)
 - [ ] Minor lint cleanup carried forward (not release-blocking): migrate Room's kapt annotation processor to KSP; add `android:dataExtractionRules` (replaces deprecated `allowBackup`); add monochrome adaptive-icon variant; split the manifest's multi-attribute `<data>` tags per lint's `IntentFilterUniqueDataAttributes` suggestion.
+- [ ] Minor test-log noise, not a failure (all tests still pass, 0 failures): `PdfReaderViewModelSmokeTest` intermittently logs a Robolectric `CloseGuard` "resource acquired but never released" warning for a `SQLiteConnection`/other `Closeable`, even after adding `ViewModelStore.clear()` + explicit `RecentDocumentsDatabase.close()` teardown in `@After`. Root cause not yet isolated — worth another look (possibly a Robolectric SQLite shadow quirk with in-memory DBs, or an unrelated Closeable from the PDFBox POC test running in the same JVM) before relying on clean test logs for CI noise budgets.
 
-## Phase 3 — Annotations and page operations (blocked)
-- [ ] **Gate not yet passed**: PDF-engine proof of concept for annotation + page-operation support (`docs/ARCHITECTURE.md` §2). `PdfRenderer` alone cannot write annotations or merge/reorder pages.
+## Phase 3 — Annotations and page operations (gate: POC done, engine decision pending)
+- [x] **PDF-engine proof of concept** (`docs/ARCHITECTURE.md` §2): PDFBox-Android (Apache-2.0) evaluated and POC-tested — annotate/save/reopen round trip, merge, and encrypted-PDF open/reject all pass (`app/src/test/java/com/pdfreader/app/poc/PdfBoxAndroidEnginePocTest.kt`, 3/3 tests). Recorded as DEC-001 in `docs/DECISIONS_AND_OPEN_QUESTIONS.md` — **Proposed**, not yet **Approved**; this is a licensing/cost decision for the user/business, not something decided unilaterally here. Dependency is `testImplementation`-only until approved (does not ship in the app).
+- [ ] **Still blocked on DEC-001 approval** before any production annotation/page-ops code is written: promoting the dependency to `implementation`, designing the adapter surface, and implementing the features below.
 - [ ] Annotation tools (highlight/underline/strike/pen/eraser/note/textbox/shapes), undo/redo, save/reopen round trip. — PDF-005
 - [ ] Rotate/reorder/extract/delete/insert/merge with preview, progress, cancellation, temp-file-then-commit writes. — PDF-006
+- [ ] Malformed-PDF corpus/fuzz pass against the chosen engine before it processes untrusted user documents (docs/SECURITY_PRIVACY.md §6) — not done in the POC pass, which only used the project's own hand-built fixture.
 
 ## Phase 4 — Signature workflows (blocked)
 - [ ] Visual signature draw/type/import, placement, private local storage, excluded from sync by default. — PDF-007
