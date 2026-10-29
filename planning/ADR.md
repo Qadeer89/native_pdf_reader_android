@@ -1,6 +1,6 @@
-# Architecture Decision Record — Vertical Slice (Phase 1)
+# Architecture Decision Record — Vertical Slice (Phase 1) and Reader MVP (Phase 2, in progress)
 
-Scope: decisions needed to produce a compiling, testable vertical slice (app shell, open a PDF, render a page). Full-feature decisions (annotation/signing engine, cloud backend) remain gated per `docs/DECISIONS_AND_OPEN_QUESTIONS.md` and are listed as open below, not decided here.
+Scope: decisions needed to produce a compiling, testable vertical slice (app shell, open a PDF, render a page) and the Phase 2 reader-navigation increment (SAF/share-intent open, next/previous page, pinch-zoom). Full-feature decisions (annotation/signing engine, cloud backend) remain gated per `docs/DECISIONS_AND_OPEN_QUESTIONS.md` and are listed as open below, not decided here.
 
 ## ADR-001 — minSdk / targetSdk / compileSdk for the slice
 - Status: Proposed (needs product sign-off per `docs/DECISIONS_AND_OPEN_QUESTIONS.md`)
@@ -34,6 +34,13 @@ Scope: decisions needed to produce a compiling, testable vertical slice (app she
 - Decision: One JVM-executable smoke test using Robolectric (`org.robolectric:robolectric`) that opens a bundled fixture PDF from app assets through the `PdfEngine` adapter, renders page 1, and asserts a non-empty bitmap of the expected dimensions. Robolectric lets `./gradlew testDebugUnitTest` actually execute this against a simulated Android environment without a device/emulator.
 - Environment note: no Android emulator or physical device is available in this execution environment (no AVD images, no connected device). A true instrumented test (`androidTest`, run via `connectedAndroidTest`) could not be executed here and must not be reported as passing. The Robolectric unit test is the automated smoke test actually run and verified in this pass; a real-device/emulator instrumented test is carried forward as backlog (see `IMPLEMENTATION_BACKLOG.md`).
 - Rationale: satisfies `MASTER_PROMPT.md` workflow step 3 ("plus one automated smoke test") and step 9 ("Never claim tests passed unless executed") simultaneously — the test is both automated and actually runnable in this environment.
+
+## ADR-007 — Opening SAF/share-intent documents without an app-private copy
+- Status: Decided (Phase 2).
+- Decision: `PdfEngine.open` takes a `PdfSource` (`LocalFile` or `ContentUri`). For `ContentUri`, `PlatformPdfRendererEngine` resolves a `ParcelFileDescriptor` directly via `ContentResolver.openFileDescriptor(uri, "r")` rather than copying the picked document into app-private cache first.
+- Rationale: `ContentResolver.openFileDescriptor` already returns a real, seekable file descriptor that `PdfRenderer` can use directly; copying would add latency/disk usage for every open with no benefit for a read-only viewer. `AssetPdfCopier`'s copy-to-cache path is kept only for the bundled asset fixture, which has no other way to get a real file descriptor (assets are not directly exposed as `content://` Uris).
+- Consequences: no byte-for-byte app-private copy of user documents exists for the reader path, which is good for docs/SECURITY_PRIVACY.md §4 ("preserve source file on failures... never overwrite silently") since we never touch the source. Page operations/signing (Phase 3/4) that need to *write* a new file will still go through "write to temp, validate/reopen, then commit" per the same doc, independent of this read path decision.
+- Permission handling: `MainActivity.takePersistableReadPermission` calls `takePersistableUriPermission` for SAF-picked Uris (best-effort; share/view-intent Uris are not always grantable and failure there is expected/non-fatal, per Android's documented behavior for those intent types).
 
 ## Open questions carried forward (not decided in this pass)
 See `docs/DECISIONS_AND_OPEN_QUESTIONS.md` for the full list. Items directly blocking later phases:

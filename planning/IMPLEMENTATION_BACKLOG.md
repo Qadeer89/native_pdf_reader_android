@@ -12,15 +12,16 @@ Tracks concrete work items against `docs/IMPLEMENTATION_PLAN.md` phases and `doc
 - [ ] CI pipeline (lint, unit test, instrumented test, dependency/license scan) — not yet created; no CI system identified in the workspace. **Blocked on**: decision of CI provider (not in docs). Tracked as follow-up.
 - [ ] Hilt/DI migration — deferred per ADR-003 until module count grows.
 
-## Phase 2 — Reader MVP (not started)
-- [ ] SAF document picker integration (`Intent.ACTION_OPEN_DOCUMENT`) replacing the bundled-asset-only flow. — PDF-001
-- [ ] Share-intent (`ACTION_SEND`/`VIEW` with `application/pdf`) and file-association handling. — PDF-001
-- [ ] Malformed/encrypted/Unicode-filename fixture tests. — PDF-001, PDF-013
-- [ ] Continuous/single-page layouts, pinch-zoom, fit width/page, page-jump. — PDF-002
-- [ ] Thumbnails strip, page count, rotation, full-screen, outline/bookmark navigation. — PDF-002
+## Phase 2 — Reader MVP (in progress)
+- [x] SAF document picker integration (`ActivityResultContracts.OpenDocument`, `application/pdf`), persistable read-permission grant on the returned Uri. — PDF-001
+- [x] Share-intent (`ACTION_SEND`) and file-association (`ACTION_VIEW`, `content`/`file` scheme, `application/pdf`) handling via `MainActivity.onNewIntent`/`onCreate`. — PDF-001
+- [x] Single-page navigation (next/previous, clamped to bounds) and pinch-to-zoom/pan (`ZoomablePdfPage`, reset per page). — PDF-002
+- [ ] Malformed/encrypted/Unicode-filename fixture tests. — PDF-001, PDF-013 (not yet added — needs additional fixtures)
+- [ ] Continuous-scroll layout, fit-width/fit-page toggle, numeric page-jump. — PDF-002 (next-page/previous-page only so far)
+- [ ] Thumbnails strip, full-screen mode, outline/bookmark navigation. — PDF-002
 - [ ] Text search with match navigation and result count. — PDF-003
 - [ ] Recent documents (Room-backed), clear history, document properties. — PDF-004
-- [ ] Lifecycle/process-death state restoration tests. — PDF-002, PDF-012
+- [ ] Lifecycle/process-death state restoration tests. — PDF-002, PDF-012 (Compose `rememberSaveable` covers in-process rotation for zoom state only; full document-state restoration after process death not yet implemented)
 
 ## Phase 3 — Annotations and page operations (blocked)
 - [ ] **Gate not yet passed**: PDF-engine proof of concept for annotation + page-operation support (`docs/ARCHITECTURE.md` §2). `PdfRenderer` alone cannot write annotations or merge/reorder pages.

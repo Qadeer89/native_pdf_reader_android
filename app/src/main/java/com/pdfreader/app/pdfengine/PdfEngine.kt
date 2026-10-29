@@ -2,7 +2,7 @@ package com.pdfreader.app.pdfengine
 
 import android.graphics.Bitmap
 import com.pdfreader.app.model.PdfOpenResult
-import java.io.File
+import com.pdfreader.app.model.PdfSource
 
 /**
  * Adapter boundary between the reader UI/ViewModel and whichever PDF engine backs it.
@@ -20,8 +20,8 @@ import java.io.File
  */
 interface PdfEngine {
 
-    /** Opens [file] and returns the page count on success, or a typed error on failure. */
-    suspend fun open(file: File): PdfOpenResult
+    /** Opens [source] and returns the page count on success, or a typed error on failure. */
+    suspend fun open(source: PdfSource): PdfOpenResult
 
     /**
      * Renders [pageIndex] (0-based) of the currently open document at approximately

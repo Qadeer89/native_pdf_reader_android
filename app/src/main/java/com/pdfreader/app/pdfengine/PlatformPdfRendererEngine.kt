@@ -1,5 +1,6 @@
 package com.pdfreader.app.pdfengine
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
@@ -7,7 +8,8 @@ import android.os.ParcelFileDescriptor
 import com.pdfreader.app.model.PdfDocumentHandle
 import com.pdfreader.app.model.PdfOpenError
 import com.pdfreader.app.model.PdfOpenResult
-import java.io.File
+import com.pdfreader.app.model.PdfSource
+import java.io.FileNotFoundException
 import java.io.IOException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -22,8 +24,15 @@ import kotlinx.coroutines.withContext
  * `PdfRenderer` and `PdfRenderer.Page` are not thread-safe and only one page may be open
  * at a time; access is serialized with a [Mutex] and executed on [ioDispatcher] so callers
  * never block the main/UI thread.
+ *
+ * Accepts both a local [PdfSource.LocalFile] (the bundled fixture, or anything already
+ * copied into app-private storage) and a SAF/share-intent [PdfSource.ContentUri] (PDF-001),
+ * resolved via [context]'s `ContentResolver` directly — no app-private copy is made for a
+ * content Uri, since `ContentResolver.openFileDescriptor` already hands back a real,
+ * seekable file descriptor `PdfRenderer` can use.
  */
 class PlatformPdfRendererEngine(
+    private val context: Context,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : PdfEngine {
 
@@ -31,22 +40,34 @@ class PlatformPdfRendererEngine(
     private var fileDescriptor: ParcelFileDescriptor? = null
     private var renderer: PdfRenderer? = null
 
-    override suspend fun open(file: File): PdfOpenResult = withContext(ioDispatcher) {
+    override suspend fun open(source: PdfSource): PdfOpenResult = withContext(ioDispatcher) {
         lock.withLock {
             closeLocked()
 
-            if (!file.exists()) {
-                return@withContext PdfOpenResult.Failure(PdfOpenError.NotFound(file.path))
-            }
-
             try {
-                val fd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+                val fd = when (source) {
+                    is PdfSource.LocalFile -> {
+                        if (!source.file.exists()) {
+                            return@withContext PdfOpenResult.Failure(PdfOpenError.NotFound(source.file.path))
+                        }
+                        ParcelFileDescriptor.open(source.file, ParcelFileDescriptor.MODE_READ_ONLY)
+                    }
+                    is PdfSource.ContentUri -> {
+                        context.contentResolver.openFileDescriptor(source.uri, "r")
+                            ?: return@withContext PdfOpenResult.Failure(
+                                PdfOpenError.NotFound(source.uri.toString()),
+                            )
+                    }
+                }
+
                 val opened = PdfRenderer(fd)
                 fileDescriptor = fd
                 renderer = opened
                 PdfOpenResult.Success(PdfDocumentHandle(pageCount = opened.pageCount))
             } catch (e: SecurityException) {
                 PdfOpenResult.Failure(PdfOpenError.PasswordProtected(e.message ?: "locked"))
+            } catch (e: FileNotFoundException) {
+                PdfOpenResult.Failure(PdfOpenError.NotFound(e.message ?: source.toString()))
             } catch (e: IOException) {
                 PdfOpenResult.Failure(PdfOpenError.Malformed(e.message ?: "malformed PDF"))
             } catch (e: IllegalArgumentException) {
