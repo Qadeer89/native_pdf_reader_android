@@ -5,7 +5,7 @@ Update module paths and test IDs when implementation begins. No requirement may 
 | ID | Area | Expected module(s) | Minimum verification | Status |
 |---|---|---|---|---|
 | PDF-001 | Open/import | `data:documents`, `feature:reader` | SAF, share intent, malformed and Unicode-path fixtures | Planned |
-| PDF-002 | Reader/navigation | `feature:reader`, `core:pdfengine` | Render, zoom, navigation, lifecycle and memory tests | Planned |
+| PDF-002 | Reader/navigation | `app/src/main/java/com/pdfreader/app/reader`, `app/src/main/java/com/pdfreader/app/pdfengine` | Render, zoom, navigation, lifecycle and memory tests | In progress — baseline open/render only (no zoom/navigation/lifecycle yet). JVM test `PdfReaderViewModelSmokeTest` (`./gradlew testDebugUnitTest`) passes against a fake engine; real-device verification of `PdfRenderInstrumentedTest` still required before `Verified`. |
 | PDF-003 | Search/OCR scope | `feature:search`, `core:pdfengine` | Search known text; OCR only if approved | Planned |
 | PDF-004 | Library/metadata | `data:documents` | Recent files, clear history, outline/bookmarks | Planned |
 | PDF-005 | Annotations | `feature:annotations`, `core:pdfengine` | Edit/undo/save/reopen round trip | Planned |
