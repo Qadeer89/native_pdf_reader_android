@@ -17,7 +17,11 @@ Only dependencies actually added for the Phase 1 vertical slice are listed with 
 | Kotlin Coroutines Core/Android | 1.8.1 | Apache-2.0 | JetBrains/Kotlin | Off-main-thread PDF open/render, structured concurrency | Required by Security baseline (PDF ops off main thread) |
 | JUnit4 | 4.13.2 | EPL-1.0 | JUnit team | Unit test framework | |
 | Robolectric | 4.13 | MIT | robolectric.org | JVM-executable Android smoke test (no device/emulator in this environment; see ADR-006) | |
-| AndroidX Test (core, junit) | 1.6.1 / 1.2.1 | Apache-2.0 | Google (AndroidX) | Robolectric test runner glue | |
+| AndroidX Test (core, junit, runner) | 1.6.1 / 1.2.1 / 1.6.2 | Apache-2.0 | Google (AndroidX) | Robolectric test runner glue + instrumented-test scaffolding (`src/androidTest`) | |
+| AndroidX Espresso Core | 3.6.1 | Apache-2.0 | Google (AndroidX) | Instrumented-test scaffolding (`src/androidTest`, not yet executed — no device here) | |
+| AndroidX Room (runtime, ktx, compiler, testing) | 2.6.1 | Apache-2.0 | Google (AndroidX) | Local recent-documents metadata (PDF-004); compiler via kapt | Stores only Uri/name/page-count/timestamp — never PDF bytes, per docs/ARCHITECTURE.md §1 |
+
+Room's annotation processor runs via `org.jetbrains.kotlin.kapt` (bundled with the Kotlin distribution already in use, so no separate version/license entry beyond Kotlin's own). Lint flags that Room also supports KSP, which is faster; migrating is tracked in `IMPLEMENTATION_BACKLOG.md` as non-blocking cleanup.
 
 Android `android.graphics.pdf.PdfRenderer` is a platform API, not a separate dependency — no separate license entry required (Android Open Source Project, Apache-2.0, bundled with the OS).
 
@@ -26,7 +30,6 @@ Android `android.graphics.pdf.PdfRenderer` is a platform API, not a separate dep
 | Dependency | Candidate purpose | Phase | Status |
 |---|---|---|---|
 | Hilt | DI once module count grows | Phase 2+ | Deferred per ADR-003 |
-| Room | Local metadata/annotation index | Phase 2/3 | Not yet selected version |
 | DataStore | Preferences (no secrets) | Phase 2 | Not yet selected version |
 | WorkManager | Background sync | Phase 5 | Not yet selected version |
 | Commercial PDF SDK (e.g. Apryse, Nutrient) or vetted OSS combination | Annotation/page-ops/forms/signing | Phase 3/4, gated | **Not selected** — requires POC, license review, and legal sign-off per `docs/ARCHITECTURE.md` §2 before adding. Do not add to the build until that gate passes. |

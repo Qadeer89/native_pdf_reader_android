@@ -4,14 +4,20 @@ import android.graphics.Bitmap
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.pdfreader.app.data.documents.DocumentMetadata
+import com.pdfreader.app.data.documents.DocumentMetadataResolver
+import com.pdfreader.app.data.recents.RecentDocumentEntity
+import com.pdfreader.app.data.recents.RecentDocumentsRepository
 import com.pdfreader.app.model.PdfOpenError
 import com.pdfreader.app.model.PdfOpenResult
 import com.pdfreader.app.model.PdfSource
 import com.pdfreader.app.pdfengine.AssetPdfCopier
 import com.pdfreader.app.pdfengine.PdfEngine
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -25,11 +31,18 @@ enum class PageLayoutMode { SINGLE, CONTINUOUS }
  * Opens a PDF (bundled fixture by default, or a user-picked SAF/share-intent document
  * per PDF-001) and renders page(s). All PDF work runs via [PdfEngine], whose
  * implementation dispatches off the main thread.
+ *
+ * Only documents opened via [openDocument] (a real [PdfSource.ContentUri]) are recorded
+ * to [RecentDocumentsRepository] (PDF-004) — the bundled fixture opened by [loadFixture]
+ * is never added to recents, since it isn't a real user document.
  */
 class ReaderViewModel(
     private val pdfEngine: PdfEngine,
     private val assetPdfCopier: AssetPdfCopier,
+    private val recentDocumentsRepository: RecentDocumentsRepository,
+    private val metadataResolver: DocumentMetadataResolver,
     private val fixtureAssetPath: String = "fixtures/sample.pdf",
+    private val clock: () -> Long = System::currentTimeMillis,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<ReaderUiState>(ReaderUiState.Loading)
@@ -37,6 +50,9 @@ class ReaderViewModel(
 
     private val _layoutMode = MutableStateFlow(PageLayoutMode.SINGLE)
     val layoutMode: StateFlow<PageLayoutMode> = _layoutMode.asStateFlow()
+
+    val recentDocuments: StateFlow<List<RecentDocumentEntity>> = recentDocumentsRepository.observeAll()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private var pageCount: Int = 0
     private var currentPageIndex: Int = 0
@@ -58,15 +74,37 @@ class ReaderViewModel(
     private fun loadFixture() {
         viewModelScope.launch {
             val file = assetPdfCopier.copyAssetToCache(fixtureAssetPath)
-            openSource(PdfSource.LocalFile(file))
+            openSource(
+                source = PdfSource.LocalFile(file),
+                metadata = DocumentMetadata(displayName = file.name, sizeBytes = file.length()),
+                recentUriToRecord = null,
+            )
         }
     }
 
     /** Opens a document the user picked via the SAF document picker or a share intent. */
     fun openDocument(uri: Uri) {
         viewModelScope.launch {
-            openSource(PdfSource.ContentUri(uri))
+            val metadata = metadataResolver.resolve(uri.toString())
+            openSource(
+                source = PdfSource.ContentUri(uri),
+                metadata = metadata,
+                recentUriToRecord = uri.toString(),
+            )
         }
+    }
+
+    /** Re-opens a document from the recent-documents list by its stored Uri string. */
+    fun openRecentDocument(uriString: String) {
+        openDocument(Uri.parse(uriString))
+    }
+
+    fun clearRecentDocuments() {
+        viewModelScope.launch { recentDocumentsRepository.clearHistory() }
+    }
+
+    fun removeRecentDocument(uriString: String) {
+        viewModelScope.launch { recentDocumentsRepository.remove(uriString) }
     }
 
     fun toggleLayoutMode() {
@@ -90,8 +128,6 @@ class ReaderViewModel(
         goToPage(pageIndex)
     }
 
-    fun currentPageCount(): Int = pageCount
-
     /**
      * Renders (or returns a cached render of) [pageIndex] at [widthPx]. Used by the
      * thumbnail strip and continuous-scroll layout, which each need page images outside
@@ -113,7 +149,7 @@ class ReaderViewModel(
         }
     }
 
-    private suspend fun openSource(source: PdfSource) {
+    private suspend fun openSource(source: PdfSource, metadata: DocumentMetadata, recentUriToRecord: String?) {
         _uiState.value = ReaderUiState.Loading
         pageCacheLock.withLock { pageCache.clear() }
         when (val result = pdfEngine.open(source)) {
@@ -125,19 +161,29 @@ class ReaderViewModel(
             is PdfOpenResult.Success -> {
                 pageCount = result.document.pageCount
                 currentPageIndex = 0
-                renderAndPublish(0)
+                renderAndPublish(0, metadata)
+                if (recentUriToRecord != null) {
+                    recentDocumentsRepository.recordOpened(
+                        uri = recentUriToRecord,
+                        displayName = metadata.displayName,
+                        pageCount = pageCount,
+                        openedAtEpochMillis = clock(),
+                    )
+                }
             }
         }
     }
 
-    private suspend fun renderAndPublish(pageIndex: Int) {
+    private suspend fun renderAndPublish(pageIndex: Int, metadata: DocumentMetadata? = null) {
         val bitmap = pageBitmap(pageIndex, TARGET_RENDER_WIDTH_PX)
+        val currentMetadata = metadata ?: (_uiState.value as? ReaderUiState.Loaded)?.documentMetadata
         if (bitmap != null) {
             currentPageIndex = pageIndex
             _uiState.value = ReaderUiState.Loaded(
                 pageIndex = pageIndex,
                 pageCount = pageCount,
                 pageBitmap = bitmap,
+                documentMetadata = currentMetadata,
             )
         } else {
             _uiState.value = ReaderUiState.Error(PdfOpenError.Unexpected("render returned no page"))

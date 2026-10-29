@@ -8,4 +8,13 @@
     <string name="reader_next_page">Next page</string>
     <string name="reader_mode_continuous">Continuous</string>
     <string name="reader_mode_single">Single page</string>
+    <string name="reader_recent_action">Recent</string>
+    <string name="reader_recent_empty">No recent documents</string>
+    <string name="reader_recent_clear">Clear history</string>
+    <string name="reader_properties_action">Info</string>
+    <string name="reader_properties_title">Document properties</string>
+    <string name="reader_properties_name">Name: %1$s</string>
+    <string name="reader_properties_pages">Pages: %1$d</string>
+    <string name="reader_properties_size">Size (bytes): %1$s</string>
+    <string name="reader_properties_dismiss">Close</string>
 </resources>

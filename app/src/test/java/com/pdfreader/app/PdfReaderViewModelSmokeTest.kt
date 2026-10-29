@@ -1,8 +1,14 @@
 package com.pdfreader.app
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
+import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.pdfreader.app.data.documents.DocumentMetadata
+import com.pdfreader.app.data.documents.DocumentMetadataResolver
+import com.pdfreader.app.data.recents.RecentDocumentsDatabase
+import com.pdfreader.app.data.recents.RecentDocumentsRepository
 import com.pdfreader.app.model.PdfDocumentHandle
 import com.pdfreader.app.model.PdfOpenResult
 import com.pdfreader.app.model.PdfSource
@@ -48,16 +54,25 @@ private const val FAKE_RENDER_HEIGHT = 500
 @Config(sdk = [34])
 class PdfReaderViewModelSmokeTest {
 
+    /** Builds a [ReaderViewModel] with a real (in-memory) recents DB and a fake metadata resolver. */
+    private fun newViewModel(context: Context, engine: PdfEngine): ReaderViewModel {
+        val db = Room.inMemoryDatabaseBuilder(context, RecentDocumentsDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        return ReaderViewModel(
+            pdfEngine = engine,
+            assetPdfCopier = AssetPdfCopier(context, ioDispatcher = kotlinx.coroutines.Dispatchers.Unconfined),
+            recentDocumentsRepository = RecentDocumentsRepository(db.recentDocumentDao()),
+            metadataResolver = FakeDocumentMetadataResolver(),
+        )
+    }
+
     @Test
     fun opensFixtureAndRendersFirstPageThroughViewModel() = runTest {
-        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-        val copier = AssetPdfCopier(context, ioDispatcher = kotlinx.coroutines.Dispatchers.Unconfined)
+        val context = ApplicationProvider.getApplicationContext<Context>()
         val fakeEngine = FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT)
 
-        val viewModel = ReaderViewModel(
-            pdfEngine = fakeEngine,
-            assetPdfCopier = copier,
-        )
+        val viewModel = newViewModel(context, fakeEngine)
 
         val state = viewModel.uiState.value
         assertTrue("expected Loaded state but got $state", state is ReaderUiState.Loaded)
@@ -78,14 +93,10 @@ class PdfReaderViewModelSmokeTest {
 
     @Test
     fun nextAndPreviousPageNavigateWithinBounds() = runTest {
-        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-        val copier = AssetPdfCopier(context, ioDispatcher = kotlinx.coroutines.Dispatchers.Unconfined)
+        val context = ApplicationProvider.getApplicationContext<Context>()
         val fakeEngine = FakePdfEngine(pageCount = MULTI_PAGE_COUNT)
 
-        val viewModel = ReaderViewModel(
-            pdfEngine = fakeEngine,
-            assetPdfCopier = copier,
-        )
+        val viewModel = newViewModel(context, fakeEngine)
 
         viewModel.nextPage()
         var loaded = viewModel.uiState.value as ReaderUiState.Loaded
@@ -116,14 +127,10 @@ class PdfReaderViewModelSmokeTest {
 
     @Test
     fun openDocumentOpensAContentUriSource() = runTest {
-        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-        val copier = AssetPdfCopier(context, ioDispatcher = kotlinx.coroutines.Dispatchers.Unconfined)
+        val context = ApplicationProvider.getApplicationContext<Context>()
         val fakeEngine = FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT)
 
-        val viewModel = ReaderViewModel(
-            pdfEngine = fakeEngine,
-            assetPdfCopier = copier,
-        )
+        val viewModel = newViewModel(context, fakeEngine)
 
         val pickedUri = Uri.parse("content://com.android.providers.downloads.documents/document/42")
         viewModel.openDocument(pickedUri)
@@ -138,14 +145,10 @@ class PdfReaderViewModelSmokeTest {
 
     @Test
     fun jumpToPageGoesDirectlyToTheRequestedPage() = runTest {
-        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-        val copier = AssetPdfCopier(context, ioDispatcher = kotlinx.coroutines.Dispatchers.Unconfined)
+        val context = ApplicationProvider.getApplicationContext<Context>()
         val fakeEngine = FakePdfEngine(pageCount = MULTI_PAGE_COUNT)
 
-        val viewModel = ReaderViewModel(
-            pdfEngine = fakeEngine,
-            assetPdfCopier = copier,
-        )
+        val viewModel = newViewModel(context, fakeEngine)
 
         viewModel.jumpToPage(2)
         val loaded = viewModel.uiState.value as ReaderUiState.Loaded
@@ -158,14 +161,10 @@ class PdfReaderViewModelSmokeTest {
 
     @Test
     fun pageBitmapCachesRenderedPagesPerSizeKey() = runTest {
-        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-        val copier = AssetPdfCopier(context, ioDispatcher = kotlinx.coroutines.Dispatchers.Unconfined)
+        val context = ApplicationProvider.getApplicationContext<Context>()
         val fakeEngine = FakePdfEngine(pageCount = MULTI_PAGE_COUNT)
 
-        val viewModel = ReaderViewModel(
-            pdfEngine = fakeEngine,
-            assetPdfCopier = copier,
-        )
+        val viewModel = newViewModel(context, fakeEngine)
         // Opening the document already rendered page 0 at FULL_PAGE_WIDTH once.
         assertEquals(1, fakeEngine.renderCallCount)
 
@@ -181,18 +180,63 @@ class PdfReaderViewModelSmokeTest {
 
     @Test
     fun toggleLayoutModeFlipsBetweenSingleAndContinuous() {
-        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-        val copier = AssetPdfCopier(context, ioDispatcher = kotlinx.coroutines.Dispatchers.Unconfined)
-        val viewModel = ReaderViewModel(
-            pdfEngine = FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT),
-            assetPdfCopier = copier,
-        )
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val viewModel = newViewModel(context, FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT))
 
         assertEquals(PageLayoutMode.SINGLE, viewModel.layoutMode.value)
         viewModel.toggleLayoutMode()
         assertEquals(PageLayoutMode.CONTINUOUS, viewModel.layoutMode.value)
         viewModel.toggleLayoutMode()
         assertEquals(PageLayoutMode.SINGLE, viewModel.layoutMode.value)
+    }
+
+    /**
+     * Room's `@Query` [kotlinx.coroutines.flow.Flow] invalidation is delivered by posting
+     * back to [ReaderViewModel]'s collector on the main dispatcher from a different
+     * (Room executor) thread. Under Robolectric's default paused main Looper, that posted
+     * task only runs once something pumps the Looper's queue — so this test idles it in a
+     * short poll loop instead of asserting on [ReaderViewModel.recentDocuments]
+     * immediately after a write, or relying on virtual test time to move it along.
+     */
+    @Test
+    fun openDocumentRecordsARecentEntryButTheFixtureDoesNot() = kotlinx.coroutines.runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val fakeEngine = FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT)
+        val viewModel = newViewModel(context, fakeEngine)
+
+        // The bundled fixture (loaded on init) must never show up in "Recent".
+        assertEquals(emptyList<Any>(), viewModel.recentDocuments.value)
+
+        val pickedUri = Uri.parse("content://com.android.providers.downloads.documents/document/7")
+        viewModel.openDocument(pickedUri)
+
+        val recents = awaitRecentDocuments(viewModel) { it.isNotEmpty() }
+        assertEquals(1, recents.size)
+        assertEquals(pickedUri.toString(), recents.first().uri)
+        assertEquals(FIXTURE_PAGE_COUNT, recents.first().pageCount)
+
+        viewModel.clearRecentDocuments()
+        val cleared = awaitRecentDocuments(viewModel) { it.isEmpty() }
+        assertEquals(emptyList<Any>(), cleared)
+    }
+
+    private suspend fun awaitRecentDocuments(
+        viewModel: ReaderViewModel,
+        predicate: (List<com.pdfreader.app.data.recents.RecentDocumentEntity>) -> Boolean,
+    ): List<com.pdfreader.app.data.recents.RecentDocumentEntity> {
+        val deadline = System.currentTimeMillis() + 5_000
+        while (System.currentTimeMillis() < deadline) {
+            val current = viewModel.recentDocuments.value
+            if (predicate(current)) return current
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            kotlinx.coroutines.delay(10)
+        }
+        throw AssertionError("recentDocuments never satisfied the predicate within the timeout")
+    }
+
+    private class FakeDocumentMetadataResolver : DocumentMetadataResolver {
+        override suspend fun resolve(uriString: String): DocumentMetadata =
+            DocumentMetadata(displayName = "fake-document.pdf", sizeBytes = 1234L)
     }
 
     /** Stands in for [PlatformPdfRendererEngine] — see class-level doc for why. */

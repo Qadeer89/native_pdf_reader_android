@@ -17,8 +17,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -42,6 +46,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.pdfreader.app.R
+import com.pdfreader.app.data.recents.RecentDocumentEntity
 
 private const val MIN_ZOOM_SCALE = 1f
 private const val MAX_ZOOM_SCALE = 5f
@@ -51,6 +56,9 @@ private const val MAX_ZOOM_SCALE = 5f
 fun ReaderScreen(viewModel: ReaderViewModel, onOpenDocumentClick: () -> Unit) {
     val state by viewModel.uiState.collectAsState()
     val layoutMode by viewModel.layoutMode.collectAsState()
+    val recentDocuments by viewModel.recentDocuments.collectAsState()
+    var showRecentMenu by remember { mutableStateOf(false) }
+    var showPropertiesDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -63,6 +71,9 @@ fun ReaderScreen(viewModel: ReaderViewModel, onOpenDocumentClick: () -> Unit) {
                 },
                 actions = {
                     if (state is ReaderUiState.Loaded) {
+                        TextButton(onClick = { showPropertiesDialog = true }) {
+                            Text(stringResource(R.string.reader_properties_action))
+                        }
                         TextButton(onClick = viewModel::toggleLayoutMode) {
                             val modeLabel = if (layoutMode == PageLayoutMode.SINGLE) {
                                 stringResource(R.string.reader_mode_continuous)
@@ -71,6 +82,24 @@ fun ReaderScreen(viewModel: ReaderViewModel, onOpenDocumentClick: () -> Unit) {
                             }
                             Text(modeLabel)
                         }
+                    }
+                    Box {
+                        TextButton(onClick = { showRecentMenu = true }) {
+                            Text(stringResource(R.string.reader_recent_action))
+                        }
+                        RecentDocumentsMenu(
+                            expanded = showRecentMenu,
+                            recentDocuments = recentDocuments,
+                            onDismiss = { showRecentMenu = false },
+                            onDocumentSelected = { uri ->
+                                showRecentMenu = false
+                                viewModel.openRecentDocument(uri)
+                            },
+                            onClearHistory = {
+                                showRecentMenu = false
+                                viewModel.clearRecentDocuments()
+                            },
+                        )
                     }
                     TextButton(onClick = onOpenDocumentClick) {
                         Text(stringResource(R.string.reader_open_action))
@@ -132,6 +161,66 @@ fun ReaderScreen(viewModel: ReaderViewModel, onOpenDocumentClick: () -> Unit) {
                     }
                 }
             }
+        }
+
+        val loadedState = state as? ReaderUiState.Loaded
+        if (showPropertiesDialog && loadedState != null) {
+            DocumentPropertiesDialog(
+                state = loadedState,
+                onDismiss = { showPropertiesDialog = false },
+            )
+        }
+    }
+}
+
+@Composable
+private fun DocumentPropertiesDialog(state: ReaderUiState.Loaded, onDismiss: () -> Unit) {
+    val metadata = state.documentMetadata
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.reader_properties_dismiss)) }
+        },
+        title = { Text(stringResource(R.string.reader_properties_title)) },
+        text = {
+            androidx.compose.foundation.layout.Column {
+                Text(stringResource(R.string.reader_properties_name, metadata?.displayName ?: "—"))
+                Text(stringResource(R.string.reader_properties_pages, state.pageCount))
+                val sizeLabel = metadata?.sizeBytes?.let { "$it" } ?: "—"
+                Text(stringResource(R.string.reader_properties_size, sizeLabel))
+            }
+        },
+    )
+}
+
+/** Dropdown of recently opened documents (PDF-004): tap to reopen, or clear the whole list. */
+@Composable
+private fun RecentDocumentsMenu(
+    expanded: Boolean,
+    recentDocuments: List<RecentDocumentEntity>,
+    onDismiss: () -> Unit,
+    onDocumentSelected: (String) -> Unit,
+    onClearHistory: () -> Unit,
+) {
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        if (recentDocuments.isEmpty()) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.reader_recent_empty)) },
+                onClick = onDismiss,
+                enabled = false,
+            )
+        } else {
+            recentDocuments.forEach { recent ->
+                DropdownMenuItem(
+                    text = { Text(recent.displayName) },
+                    onClick = { onDocumentSelected(recent.uri) },
+                )
+            }
+            HorizontalDivider()
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.reader_recent_clear)) },
+                onClick = onClearHistory,
+            )
         }
     }
 }

@@ -10,6 +10,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import com.pdfreader.app.data.documents.ContentResolverDocumentMetadataResolver
+import com.pdfreader.app.data.recents.RecentDocumentsDatabase
+import com.pdfreader.app.data.recents.RecentDocumentsRepository
 import com.pdfreader.app.pdfengine.AssetPdfCopier
 import com.pdfreader.app.pdfengine.PlatformPdfRendererEngine
 import com.pdfreader.app.reader.ReaderScreen
@@ -29,6 +32,10 @@ class MainActivity : ComponentActivity() {
                 return ReaderViewModel(
                     pdfEngine = PlatformPdfRendererEngine(context = applicationContext),
                     assetPdfCopier = AssetPdfCopier(applicationContext),
+                    recentDocumentsRepository = RecentDocumentsRepository(
+                        RecentDocumentsDatabase.getInstance(applicationContext).recentDocumentDao(),
+                    ),
+                    metadataResolver = ContentResolverDocumentMetadataResolver(applicationContext),
                 ) as T
             }
         }

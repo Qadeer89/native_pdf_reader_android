@@ -15,13 +15,15 @@ Tracks concrete work items against `docs/IMPLEMENTATION_PLAN.md` phases and `doc
 ## Phase 2 — Reader MVP (in progress)
 - [x] SAF document picker integration (`ActivityResultContracts.OpenDocument`, `application/pdf`), persistable read-permission grant on the returned Uri. — PDF-001
 - [x] Share-intent (`ACTION_SEND`) and file-association (`ACTION_VIEW`, `content`/`file` scheme, `application/pdf`) handling via `MainActivity.onNewIntent`/`onCreate`. — PDF-001
-- [x] Single-page navigation (next/previous, clamped to bounds) and pinch-to-zoom/pan (`ZoomablePdfPage`, reset per page). — PDF-002
+- [x] Single-page navigation (next/previous/jump, clamped to bounds) and pinch-to-zoom/pan (`ZoomablePdfPage`, reset per page). — PDF-002
+- [x] Thumbnail strip (tap to jump) and a continuous-scroll layout, toggled from the top bar. Both render pages on demand through a small per-(page,width) cache in `ReaderViewModel`. — PDF-002
+- [x] Recent documents (Room-backed: `data/recents`), upsert on open, clear-history, per-item delete; document-properties dialog (name/page count/size via `ContentResolver`). Bundled fixture is excluded from recents. — PDF-004
 - [ ] Malformed/encrypted/Unicode-filename fixture tests. — PDF-001, PDF-013 (not yet added — needs additional fixtures)
-- [ ] Continuous-scroll layout, fit-width/fit-page toggle, numeric page-jump. — PDF-002 (next-page/previous-page only so far)
-- [ ] Thumbnails strip, full-screen mode, outline/bookmark navigation. — PDF-002
-- [ ] Text search with match navigation and result count. — PDF-003
-- [ ] Recent documents (Room-backed), clear history, document properties. — PDF-004
+- [ ] Fit-width/fit-page auto-sizing (zoom is currently manual pinch only, no auto-fit toggle). — PDF-002
+- [ ] Full-screen mode, outline/bookmark navigation. — PDF-002, PDF-004 — outline needs a text/structure-capable engine (see PDF-003 note below); `PdfRenderer` has no outline API.
+- [ ] **Blocked**: text search with match navigation and result count. — PDF-003. `android.graphics.pdf.PdfRenderer` has no text-extraction/search API at all (bitmap rendering only) — this needs the same gated PDF-engine decision as annotations/signing (docs/ARCHITECTURE.md §2, planning/ADR.md ADR-002). Not started; no stub added.
 - [ ] Lifecycle/process-death state restoration tests. — PDF-002, PDF-012 (Compose `rememberSaveable` covers in-process rotation for zoom state only; full document-state restoration after process death not yet implemented)
+- [ ] Minor lint cleanup carried forward (not release-blocking): migrate Room's kapt annotation processor to KSP; add `android:dataExtractionRules` (replaces deprecated `allowBackup`); add monochrome adaptive-icon variant; split the manifest's multi-attribute `<data>` tags per lint's `IntentFilterUniqueDataAttributes` suggestion.
 
 ## Phase 3 — Annotations and page operations (blocked)
 - [ ] **Gate not yet passed**: PDF-engine proof of concept for annotation + page-operation support (`docs/ARCHITECTURE.md` §2). `PdfRenderer` alone cannot write annotations or merge/reorder pages.
