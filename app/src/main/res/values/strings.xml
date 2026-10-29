@@ -6,4 +6,6 @@
     <string name="reader_open_action">Open</string>
     <string name="reader_previous_page">Previous page</string>
     <string name="reader_next_page">Next page</string>
+    <string name="reader_mode_continuous">Continuous</string>
+    <string name="reader_mode_single">Single page</string>
 </resources>
