@@ -26,6 +26,11 @@
     <string name="reader_page_rotate">Rotate 90°</string>
     <string name="reader_page_delete">Delete this page</string>
     <string name="reader_page_merge">Merge another PDF in…</string>
+    <string name="reader_page_move">Move this page…</string>
+    <string name="move_page_title">Move page %1$d of %2$d</string>
+    <string name="move_page_label">New position (1–%1$d)</string>
+    <string name="move_page_confirm">Move</string>
+    <string name="move_page_cancel">Cancel</string>
     <string name="reader_signature_action">Sign</string>
     <string name="reader_signature_done">Done placing</string>
     <string name="reader_signature_disclaimer">Appearance only — not a verified digital signature</string>

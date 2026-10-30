@@ -304,6 +304,27 @@ class ReaderViewModel(
         }
     }
 
+    /**
+     * Moves the current page to ([targetPageNumber1Based] - 1) (0-based internally; the UI
+     * works in 1-based page numbers). Staged like [deleteCurrentPage] — [pdfEngine] keeps
+     * rendering pages by their original index, so the thumbnail strip/page view does not
+     * visually reorder; only [exportAnnotatedCopy] actually saves the new order. No-ops if
+     * [targetPageNumber1Based] is out of range or equal to the page's current position.
+     */
+    fun movePageTo(targetPageNumber1Based: Int) {
+        if (!editEngineAvailable) return
+        val targetIndex = targetPageNumber1Based - 1
+        if (targetIndex < 0 || targetIndex >= pageCount || targetIndex == currentPageIndex) return
+        val fromIndex = currentPageIndex
+        viewModelScope.launch {
+            _pageOpMessage.value = if (pdfEditEngine.movePage(fromIndex, targetIndex)) {
+                "Page moved. Export a copy to save this change."
+            } else {
+                "Could not move this page."
+            }
+        }
+    }
+
     /** Appends every page of [uri] to the end of the document (PDF-006 merge). Staged like [deleteCurrentPage]. */
     fun mergeDocument(uri: Uri) {
         if (!editEngineAvailable) return

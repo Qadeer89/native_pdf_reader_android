@@ -99,6 +99,7 @@ fun ReaderScreen(
     var showTypeSignatureDialog by remember { mutableStateOf(false) }
     var showCreateIdentityDialog by remember { mutableStateOf(false) }
     var showSignatureStatusDialog by remember { mutableStateOf(false) }
+    var showMovePageDialog by remember { mutableStateOf(false) }
     var annotateMode by rememberSaveable { mutableStateOf(false) }
     var signatureMode by rememberSaveable { mutableStateOf(false) }
 
@@ -173,6 +174,10 @@ fun ReaderScreen(
                                     onMerge = {
                                         showPageMenu = false
                                         onMergeDocumentClick()
+                                    },
+                                    onMove = {
+                                        showPageMenu = false
+                                        showMovePageDialog = true
                                     },
                                 )
                             }
@@ -395,6 +400,17 @@ fun ReaderScreen(
                 onDismiss = { showSignatureStatusDialog = false },
             )
         }
+        if (showMovePageDialog && loadedState != null) {
+            MovePageDialog(
+                currentPageNumber = loadedState.pageIndex + 1,
+                pageCount = loadedState.pageCount,
+                onDismiss = { showMovePageDialog = false },
+                onMove = { targetPageNumber ->
+                    viewModel.movePageTo(targetPageNumber)
+                    showMovePageDialog = false
+                },
+            )
+        }
     }
 }
 
@@ -443,7 +459,7 @@ private fun PageOpMessageBanner(message: String?, onDismiss: () -> Unit) {
     }
 }
 
-/** Page-operations menu (PDF-006): rotate/delete the current page, or merge another document in. */
+/** Page-operations menu (PDF-006): rotate/delete/move the current page, or merge another document in. */
 @Composable
 private fun PageOpsMenu(
     expanded: Boolean,
@@ -451,12 +467,50 @@ private fun PageOpsMenu(
     onRotate: () -> Unit,
     onDelete: () -> Unit,
     onMerge: () -> Unit,
+    onMove: () -> Unit,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         DropdownMenuItem(text = { Text(stringResource(R.string.reader_page_rotate)) }, onClick = onRotate)
         DropdownMenuItem(text = { Text(stringResource(R.string.reader_page_delete)) }, onClick = onDelete)
+        DropdownMenuItem(text = { Text(stringResource(R.string.reader_page_move)) }, onClick = onMove)
         DropdownMenuItem(text = { Text(stringResource(R.string.reader_page_merge)) }, onClick = onMerge)
     }
+}
+
+/**
+ * Lets the user move the current page to a new 1-based position (PDF-006). A plain numeric
+ * target rather than drag-and-drop on the thumbnail strip: `movePage` only affects
+ * [ReaderViewModel]'s edit engine, not the live-rendered page bitmaps (same staged pattern as
+ * delete/merge, see `planning/ADR.md` ADR-011/ADR-017) — dragging thumbnails that don't
+ * actually move would be more confusing than a direct "move to position N" control.
+ */
+@Composable
+private fun MovePageDialog(currentPageNumber: Int, pageCount: Int, onDismiss: () -> Unit, onMove: (targetPageNumber: Int) -> Unit) {
+    var targetText by rememberSaveable(currentPageNumber) { mutableStateOf(currentPageNumber.toString()) }
+    val target = targetText.toIntOrNull()
+    val targetIsValid = target != null && target in 1..pageCount
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.move_page_title, currentPageNumber, pageCount)) },
+        text = {
+            OutlinedTextField(
+                value = targetText,
+                onValueChange = { targetText = it.filter(Char::isDigit) },
+                singleLine = true,
+                label = { Text(stringResource(R.string.move_page_label, pageCount)) },
+                isError = !targetIsValid,
+            )
+        },
+        confirmButton = {
+            TextButton(enabled = targetIsValid && target != currentPageNumber, onClick = { onMove(target!!) }) {
+                Text(stringResource(R.string.move_page_confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.move_page_cancel)) }
+        },
+    )
 }
 
 @Composable

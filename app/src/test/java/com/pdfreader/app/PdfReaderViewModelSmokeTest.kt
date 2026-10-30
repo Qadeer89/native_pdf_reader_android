@@ -392,6 +392,46 @@ class PdfReaderViewModelSmokeTest {
     }
 
     @Test
+    fun movePageToMovesAndReportsStagedFeedback() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val editEngine = FakePdfEditEngine(initialPageCount = MULTI_PAGE_COUNT)
+        val viewModel = newViewModel(context, FakePdfEngine(pageCount = MULTI_PAGE_COUNT), editEngine = editEngine)
+
+        assertEquals(null, viewModel.pageOpMessage.value)
+        viewModel.movePageTo(3)
+        assertTrue(viewModel.pageOpMessage.value?.contains("moved", ignoreCase = true) == true)
+    }
+
+    @Test
+    fun movePageToIsANoOpForTheCurrentPositionOrAnOutOfRangeTarget() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val editEngine = FakePdfEditEngine(initialPageCount = MULTI_PAGE_COUNT)
+        val viewModel = newViewModel(context, FakePdfEngine(pageCount = MULTI_PAGE_COUNT), editEngine = editEngine)
+
+        viewModel.movePageTo(1) // already on page 1 (index 0)
+        assertEquals(null, viewModel.pageOpMessage.value)
+
+        viewModel.movePageTo(0)
+        assertEquals(null, viewModel.pageOpMessage.value)
+
+        viewModel.movePageTo(MULTI_PAGE_COUNT + 1)
+        assertEquals(null, viewModel.pageOpMessage.value)
+    }
+
+    @Test
+    fun movePageToIsANoOpWhenTheEditEngineFailedToOpen() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val viewModel = newViewModel(
+            context,
+            FakePdfEngine(pageCount = MULTI_PAGE_COUNT),
+            editEngine = FakePdfEditEngine(openSucceeds = false),
+        )
+
+        viewModel.movePageTo(2)
+        assertEquals(null, viewModel.pageOpMessage.value)
+    }
+
+    @Test
     fun mergeDocumentReportsFailureWhenTheEditEngineRejectsIt() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val editEngine = FakePdfEditEngine(appendSucceeds = false)
