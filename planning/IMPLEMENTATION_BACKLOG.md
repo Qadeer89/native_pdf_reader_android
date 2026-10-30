@@ -39,7 +39,9 @@ Tracks concrete work items against `docs/IMPLEMENTATION_PLAN.md` phases and `doc
 - [ ] Insert-at-position and extract-to-new-file not implemented (`appendDocument` only adds to the end; there's no "extract selected pages into their own file").
 - [ ] No preview, progress, or cancellation for merge/delete/rotate — they apply immediately and silently stage the change (a snackbar says so), which is fine for a 1-3 page fixture but will matter for larger real documents.
 - [ ] Page-structure changes (delete/move/merge) are staged only — the live render stays on the unedited file (via `PdfEngine`) until the user exports a copy. This is a known, documented limitation (planning/ADR.md ADR-010), not an oversight, but a "preview after merge/delete" experience would need the render engine to pick up the edited document somehow.
-- [ ] Malformed-PDF corpus/fuzz pass against PDFBox-Android before it processes untrusted user documents (docs/SECURITY_PRIVACY.md §6) — not done; the POC and engine tests only used the project's own hand-built fixture.
+- [x] Malformed-PDF corpus pass against PDFBox-Android (`app/src/test/java/com/pdfreader/app/security/MalformedPdfCorpusTest.kt`, SEC-001) — 8 hand-built malformed/adversarial fixtures (empty, non-PDF, header-only, truncated, corrupted trailer/xref, self-referential page tree, unencrypted-open of an encrypted PDF, zero-page document), all confirmed to open without hanging or throwing past `PdfOpenResult`, and to reject page-indexed operations cleanly on a pathological document. Scope is parse-safety only — see the two items below for what this does *not* cover.
+- [ ] True decompression-bomb/memory-exhaustion resistance is not covered by the above — docs/SECURITY_PRIVACY.md §2 itself frames that as possibly needing process isolation/sandboxing, which this app's current single-process architecture doesn't have. A real "fuzz" pass (randomized/mutated byte corpora, not just hand-built cases) is also not done — the corpus above is small and deliberately targeted, not generated.
+- [ ] `android.graphics.pdf.PdfRenderer` (`PlatformPdfRendererEngine`) has no malformed-input test coverage at all — Robolectric has no real binding for it (ADR-006), so nothing here can exercise it; needs a real device/emulator.
 - [ ] BouncyCastle is now transitively present (via PDFBox-Android — confirmed via `./gradlew :app:dependencies`, see `planning/DEPENDENCY_LICENSE_INVENTORY.md`) but has not been separately vetted for direct use signing PDFs (PDF-008) — still a distinct, gated piece of work.
 
 ## Phase 4 — Signature workflows (visual signature done; digital signature sign+validate implemented, device-level verification pending)
@@ -66,8 +68,8 @@ Tracks concrete work items against `docs/IMPLEMENTATION_PLAN.md` phases and `doc
 - [ ] Auth, owner-scoped Firestore/Storage rules (or chosen backend), emulator-based cross-user denial tests before any production cloud resource is enabled, per `MASTER_PROMPT.md` workflow step 6. — PDF-011, SEC-002
 - [ ] Offline queue, retry/backoff, conflict resolution, deletion propagation. — PDF-011
 
-## Phase 6 — Hardening (not started)
-- [ ] Malformed PDF corpus/fuzz testing. — SEC-001
+## Phase 6 — Hardening (malformed-PDF corpus started)
+- [x] Malformed PDF corpus testing against PDFBox-Android — see Phase 3's entry above for detail. — SEC-001
 - [ ] Dependency vulnerability/license scan wired into CI.
 - [ ] Log/crash-report inspection for sensitive data leakage. — SEC-003, SEC-004
 - [ ] Performance baselines (render/navigation/search/merge/upload) on representative devices — no real device/emulator available in this environment; must be measured on actual hardware before committing to budgets.
