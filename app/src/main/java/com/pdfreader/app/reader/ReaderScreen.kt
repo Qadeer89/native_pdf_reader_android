@@ -608,6 +608,18 @@ private fun SignatureMenu(
     onDelete: (id: String) -> Unit,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        // docs/SECURITY_PRIVACY.md §5: "Clearly label visual signatures as appearances only."
+        DropdownMenuItem(
+            text = {
+                Text(
+                    stringResource(R.string.reader_signature_disclaimer),
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            },
+            onClick = {},
+            enabled = false,
+        )
+        HorizontalDivider()
         DropdownMenuItem(text = { Text(stringResource(R.string.reader_signature_menu_draw)) }, onClick = onDrawNew)
         DropdownMenuItem(text = { Text(stringResource(R.string.reader_signature_menu_type)) }, onClick = onTypeNew)
         DropdownMenuItem(text = { Text(stringResource(R.string.reader_signature_menu_import)) }, onClick = onImportNew)

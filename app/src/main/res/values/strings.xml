@@ -28,6 +28,7 @@
     <string name="reader_page_merge">Merge another PDF in…</string>
     <string name="reader_signature_action">Sign</string>
     <string name="reader_signature_done">Done placing</string>
+    <string name="reader_signature_disclaimer">Appearance only — not a verified digital signature</string>
     <string name="reader_signature_menu_draw">Draw new signature</string>
     <string name="reader_signature_menu_type">Type new signature</string>
     <string name="reader_signature_menu_import">Import image…</string>
