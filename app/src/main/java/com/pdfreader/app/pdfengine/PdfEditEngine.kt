@@ -63,6 +63,17 @@ interface PdfEditEngine {
     suspend fun appendDocument(source: PdfSource): Boolean
 
     /**
+     * Stamps a PNG image (e.g. a saved visual signature, [pngBytes]) onto [pageIndex]
+     * (0-based). ([xFraction], [yFraction]) is the top-left corner of the stamp, in
+     * `0f..1f` of the page, top-down (matching tap coordinates, same convention as
+     * [addNoteAnnotation]). [widthFraction] is the stamp's width as a fraction of the
+     * page's width; its height is derived from [pngBytes]'s own pixel aspect ratio, so the
+     * image is never stretched. Returns false if no document is open, the page index is
+     * invalid, or [pngBytes] can't be decoded as an image. PDF-007.
+     */
+    suspend fun addImageStamp(pageIndex: Int, xFraction: Float, yFraction: Float, widthFraction: Float, pngBytes: ByteArray): Boolean
+
+    /**
      * Per docs/SECURITY_PRIVACY.md §4 ("write outputs to temporary files, validate/reopen,
      * then atomically commit"): saves the in-progress edits to a new app-private temporary
      * file, then reopens *that* file to confirm it is actually valid and has the expected

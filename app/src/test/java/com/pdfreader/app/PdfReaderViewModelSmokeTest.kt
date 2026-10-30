@@ -11,6 +11,9 @@ import com.pdfreader.app.data.documents.DocumentMetadata
 import com.pdfreader.app.data.documents.DocumentMetadataResolver
 import com.pdfreader.app.data.recents.RecentDocumentsDatabase
 import com.pdfreader.app.data.recents.RecentDocumentsRepository
+import com.pdfreader.app.data.signatures.ImageUriDecoder
+import com.pdfreader.app.data.signatures.SavedSignature
+import com.pdfreader.app.data.signatures.SignatureRepository
 import com.pdfreader.app.model.PdfDocumentHandle
 import com.pdfreader.app.model.PdfOpenResult
 import com.pdfreader.app.model.PdfSource
@@ -88,6 +91,8 @@ class PdfReaderViewModelSmokeTest {
         engine: PdfEngine,
         editEngine: PdfEditEngine = FakePdfEditEngine(),
         destinationWriter: DestinationWriter = FakeDestinationWriter(),
+        signatureRepository: SignatureRepository = FakeSignatureRepository(),
+        imageUriDecoder: ImageUriDecoder = FakeImageUriDecoder(),
     ): ReaderViewModel {
         val db = Room.inMemoryDatabaseBuilder(context, RecentDocumentsDatabase::class.java)
             .allowMainThreadQueries()
@@ -100,6 +105,8 @@ class PdfReaderViewModelSmokeTest {
             recentDocumentsRepository = RecentDocumentsRepository(db.recentDocumentDao()),
             metadataResolver = FakeDocumentMetadataResolver(),
             destinationWriter = destinationWriter,
+            signatureRepository = signatureRepository,
+            imageUriDecoder = imageUriDecoder,
         )
         viewModelStore.put(db.hashCode().toString(), viewModel)
         return viewModel
@@ -359,6 +366,86 @@ class PdfReaderViewModelSmokeTest {
     }
 
     @Test
+    fun saveSignatureAddsItToSavedSignaturesAndSelectsIt() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val signatureRepository = FakeSignatureRepository()
+        val viewModel = newViewModel(
+            context,
+            FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT),
+            signatureRepository = signatureRepository,
+        )
+        assertEquals(emptyList<SavedSignature>(), viewModel.savedSignatures.value)
+
+        val bitmap = Bitmap.createBitmap(40, 20, Bitmap.Config.ARGB_8888)
+        viewModel.saveSignature(bitmap)
+
+        assertEquals(1, viewModel.savedSignatures.value.size)
+        assertEquals(viewModel.savedSignatures.value.first().id, viewModel.selectedSignatureId.value)
+    }
+
+    @Test
+    fun importSignatureImageDecodesAndSavesTheBitmap() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val importedBitmap = Bitmap.createBitmap(10, 10, Bitmap.Config.ARGB_8888)
+        val viewModel = newViewModel(
+            context,
+            FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT),
+            imageUriDecoder = FakeImageUriDecoder(result = importedBitmap),
+        )
+
+        viewModel.importSignatureImage(Uri.parse("content://example/picked-image"))
+
+        assertEquals(1, viewModel.savedSignatures.value.size)
+        assertEquals(importedBitmap, viewModel.savedSignatures.value.first().bitmap)
+    }
+
+    @Test
+    fun placeSignatureAtStampsTheSelectedSignatureAndOverlaysIt() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val editEngine = FakePdfEditEngine()
+        val viewModel = newViewModel(context, FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT), editEngine = editEngine)
+
+        viewModel.saveSignature(Bitmap.createBitmap(40, 20, Bitmap.Config.ARGB_8888))
+        var loaded = viewModel.uiState.value as ReaderUiState.Loaded
+        assertEquals(emptyList<Any>(), loaded.signatureStamps)
+
+        viewModel.placeSignatureAt(0.1f, 0.2f)
+
+        loaded = viewModel.uiState.value as ReaderUiState.Loaded
+        assertEquals(1, loaded.signatureStamps.size)
+        assertEquals(0.1f, loaded.signatureStamps.first().xFraction)
+        assertEquals(1, editEngine.imageStamps.size)
+    }
+
+    @Test
+    fun placeSignatureAtIsANoOpWithoutASelectedSignature() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val editEngine = FakePdfEditEngine()
+        val viewModel = newViewModel(context, FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT), editEngine = editEngine)
+
+        viewModel.placeSignatureAt(0.1f, 0.2f)
+
+        val loaded = viewModel.uiState.value as ReaderUiState.Loaded
+        assertEquals(emptyList<Any>(), loaded.signatureStamps)
+        assertEquals(0, editEngine.imageStamps.size)
+    }
+
+    @Test
+    fun deleteSignatureRemovesItAndClearsSelectionIfItWasSelected() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val viewModel = newViewModel(context, FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT))
+
+        viewModel.saveSignature(Bitmap.createBitmap(40, 20, Bitmap.Config.ARGB_8888))
+        val savedId = viewModel.selectedSignatureId.value
+        assertTrue(savedId != null)
+
+        viewModel.deleteSignature(savedId!!)
+
+        assertEquals(emptyList<SavedSignature>(), viewModel.savedSignatures.value)
+        assertEquals(null, viewModel.selectedSignatureId.value)
+    }
+
+    @Test
     fun exportAnnotatedCopySucceedsAndCommitsToTheDestination() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val destinationWriter = FakeDestinationWriter(writeSucceeds = true)
@@ -459,6 +546,21 @@ class PdfReaderViewModelSmokeTest {
             return true
         }
 
+        val imageStamps = mutableListOf<Int>()
+        var addImageStampSucceeds: Boolean = true
+
+        override suspend fun addImageStamp(
+            pageIndex: Int,
+            xFraction: Float,
+            yFraction: Float,
+            widthFraction: Float,
+            pngBytes: ByteArray,
+        ): Boolean {
+            if (!addImageStampSucceeds || pageIndex < 0 || pageIndex >= pageCount) return false
+            imageStamps += pageIndex
+            return true
+        }
+
         override suspend fun writeValidatedTempCopy(): File = File.createTempFile("fake-edit", ".pdf")
 
         override suspend fun close() {
@@ -474,6 +576,28 @@ class PdfReaderViewModelSmokeTest {
             lastDestination = destination
             return writeSucceeds
         }
+    }
+
+    /** In-memory stand-in for [LocalFileSignatureRepository] — no real file I/O involved. */
+    private class FakeSignatureRepository(initial: List<SavedSignature> = emptyList()) : SignatureRepository {
+        private val signatures = initial.toMutableList()
+
+        override suspend fun listAll(): List<SavedSignature> = signatures.toList()
+
+        override suspend fun save(bitmap: Bitmap): SavedSignature {
+            val saved = SavedSignature(id = "sig-${signatures.size}", bitmap = bitmap, createdAtEpochMillis = 0L)
+            signatures += saved
+            return saved
+        }
+
+        override suspend fun delete(id: String) {
+            signatures.removeAll { it.id == id }
+        }
+    }
+
+    /** Stands in for [ContentResolverImageUriDecoder]. */
+    private class FakeImageUriDecoder(private val result: Bitmap? = null) : ImageUriDecoder {
+        override suspend fun decode(uri: Uri): Bitmap? = result
     }
 
     /** Stands in for [PlatformPdfRendererEngine] — see class-level doc for why. */

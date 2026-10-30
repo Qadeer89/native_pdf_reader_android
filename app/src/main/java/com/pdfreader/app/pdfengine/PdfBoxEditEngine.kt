@@ -7,8 +7,10 @@ import com.pdfreader.app.model.PdfOpenResult
 import com.pdfreader.app.model.PdfSource
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
 import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import com.tom_roush.pdfbox.pdmodel.encryption.InvalidPasswordException
+import com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject
 import com.tom_roush.pdfbox.pdmodel.interactive.annotation.PDAnnotationText
 import java.io.File
 import java.io.FileNotFoundException
@@ -94,6 +96,44 @@ class PdfBoxEditEngine(
             note.contents = text
             page.annotations.add(note)
             true
+        }
+    }
+
+    /**
+     * Uses `PDPageContentStream(..., AppendMode.APPEND, ...)` (verified via `javap` against
+     * the real PDFBox-Android classes before writing this, same practice as ADR-011) so the
+     * stamp is drawn *on top of* the page's existing content rather than replacing it.
+     */
+    override suspend fun addImageStamp(
+        pageIndex: Int,
+        xFraction: Float,
+        yFraction: Float,
+        widthFraction: Float,
+        pngBytes: ByteArray,
+    ): Boolean = withContext(ioDispatcher) {
+        lock.withLock {
+            val doc = document ?: return@withContext false
+            if (pageIndex < 0 || pageIndex >= doc.numberOfPages) return@withContext false
+            try {
+                val page = doc.getPage(pageIndex)
+                val mediaBox = page.mediaBox
+                val image = PDImageXObject.createFromByteArray(doc, pngBytes, "signature")
+
+                val widthPoints = widthFraction.coerceIn(0.01f, 1f) * mediaBox.width
+                val heightPoints = widthPoints * image.height / image.width.toFloat()
+                val xPoints = mediaBox.lowerLeftX + xFraction.coerceIn(0f, 1f) * mediaBox.width
+                // PDF page coordinates are bottom-up; UI taps are measured top-down, and
+                // (xFraction, yFraction) is the stamp's top-left corner (see interface doc).
+                val yPoints = mediaBox.lowerLeftY +
+                    (1f - yFraction.coerceIn(0f, 1f)) * mediaBox.height - heightPoints
+
+                PDPageContentStream(doc, page, PDPageContentStream.AppendMode.APPEND, true, true).use { stream ->
+                    stream.drawImage(image, xPoints, yPoints, widthPoints, heightPoints)
+                }
+                true
+            } catch (_: Exception) {
+                false
+            }
         }
     }
 

@@ -9,12 +9,16 @@ import com.pdfreader.app.data.documents.DocumentMetadata
 import com.pdfreader.app.data.documents.DocumentMetadataResolver
 import com.pdfreader.app.data.recents.RecentDocumentEntity
 import com.pdfreader.app.data.recents.RecentDocumentsRepository
+import com.pdfreader.app.data.signatures.ImageUriDecoder
+import com.pdfreader.app.data.signatures.SavedSignature
+import com.pdfreader.app.data.signatures.SignatureRepository
 import com.pdfreader.app.model.PdfOpenError
 import com.pdfreader.app.model.PdfOpenResult
 import com.pdfreader.app.model.PdfSource
 import com.pdfreader.app.pdfengine.AssetPdfCopier
 import com.pdfreader.app.pdfengine.PdfEditEngine
 import com.pdfreader.app.pdfengine.PdfEngine
+import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -27,14 +31,16 @@ import kotlinx.coroutines.sync.withLock
 private const val TARGET_RENDER_WIDTH_PX = 1080
 private const val THUMBNAIL_WIDTH_PX = 160
 private const val DEFAULT_NOTE_TEXT = "Note"
+private const val DEFAULT_SIGNATURE_WIDTH_FRACTION = 0.35f
 
 enum class PageLayoutMode { SINGLE, CONTINUOUS }
 
 /**
  * Opens a PDF (bundled fixture by default, or a user-picked SAF/share-intent document
  * per PDF-001), renders page(s) via [pdfEngine], and — once DEC-001 (PDFBox-Android) was
- * approved — supports adding simple note annotations via [pdfEditEngine] (PDF-005) and
- * exporting an annotated copy (PDF-010).
+ * approved — supports adding simple note annotations (PDF-005), page operations (PDF-006),
+ * stamping saved visual signatures via [signatureRepository]/[pdfEditEngine] (PDF-007), and
+ * exporting an edited copy (PDF-010).
  *
  * The two engines are opened in parallel against the *same* [PdfSource] but are otherwise
  * independent (see the doc comment on [PdfEditEngine]): [pdfEngine] drives every page
@@ -54,6 +60,8 @@ class ReaderViewModel(
     private val recentDocumentsRepository: RecentDocumentsRepository,
     private val metadataResolver: DocumentMetadataResolver,
     private val destinationWriter: DestinationWriter,
+    private val signatureRepository: SignatureRepository,
+    private val imageUriDecoder: ImageUriDecoder,
     private val fixtureAssetPath: String = "fixtures/sample.pdf",
     private val clock: () -> Long = System::currentTimeMillis,
 ) : ViewModel() {
@@ -80,6 +88,12 @@ class ReaderViewModel(
     val recentDocuments: StateFlow<List<RecentDocumentEntity>> = recentDocumentsRepository.observeAll()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    private val _savedSignatures = MutableStateFlow<List<SavedSignature>>(emptyList())
+    val savedSignatures: StateFlow<List<SavedSignature>> = _savedSignatures.asStateFlow()
+
+    private val _selectedSignatureId = MutableStateFlow<String?>(null)
+    val selectedSignatureId: StateFlow<String?> = _selectedSignatureId.asStateFlow()
+
     private var pageCount: Int = 0
     private var currentPageIndex: Int = 0
     private var editEngineAvailable: Boolean = false
@@ -89,6 +103,9 @@ class ReaderViewModel(
 
     /** Visual-only rotation feedback per page index, this session only — see [rotateCurrentPage]. */
     private val pageRotationsDegrees = mutableMapOf<Int, Int>()
+
+    /** Signatures stamped this session, per page index — see [placeSignatureAt]. */
+    private val signatureStampsByPage = mutableMapOf<Int, MutableList<SignatureStamp>>()
 
     /**
      * Cache of already-rendered page/thumbnail bitmaps for the currently open document,
@@ -102,6 +119,15 @@ class ReaderViewModel(
 
     init {
         loadFixture()
+        viewModelScope.launch { refreshSavedSignatures() }
+    }
+
+    private suspend fun refreshSavedSignatures() {
+        val signatures = signatureRepository.listAll()
+        _savedSignatures.value = signatures
+        if (_selectedSignatureId.value == null) {
+            _selectedSignatureId.value = signatures.lastOrNull()?.id
+        }
     }
 
     private fun loadFixture() {
@@ -258,6 +284,69 @@ class ReaderViewModel(
         }
     }
 
+    /** Marks [id] as the signature [placeSignatureAt] will stamp next (PDF-007). */
+    fun selectSignature(id: String) {
+        _selectedSignatureId.value = id
+    }
+
+    /** Saves a newly drawn/typed signature [bitmap] and selects it. PDF-007. */
+    fun saveSignature(bitmap: Bitmap) {
+        viewModelScope.launch { persistSignature(bitmap) }
+    }
+
+    /** Decodes and saves a picked image [uri] as a signature, then selects it. PDF-007. */
+    fun importSignatureImage(uri: Uri) {
+        viewModelScope.launch {
+            val bitmap = imageUriDecoder.decode(uri) ?: return@launch
+            persistSignature(bitmap)
+        }
+    }
+
+    private suspend fun persistSignature(bitmap: Bitmap) {
+        val saved = signatureRepository.save(bitmap)
+        refreshSavedSignatures()
+        _selectedSignatureId.value = saved.id
+    }
+
+    fun deleteSignature(id: String) {
+        viewModelScope.launch {
+            signatureRepository.delete(id)
+            if (_selectedSignatureId.value == id) {
+                _selectedSignatureId.value = null
+            }
+            refreshSavedSignatures()
+        }
+    }
+
+    /**
+     * Stamps the currently selected saved signature onto the current page at ([xFraction],
+     * [yFraction]) — its top-left corner, `0f..1f` of the page, top-down (matching tap
+     * coordinates). No-ops if the edit engine is unavailable or no signature is selected.
+     * Unlike delete/move/merge (PDF-006), this is drawn directly onto the page's content
+     * stream rather than changing page count/order, so — like note annotations — it gets a
+     * live Compose overlay instead of needing a full re-render. PDF-007.
+     */
+    fun placeSignatureAt(xFraction: Float, yFraction: Float) {
+        if (!editEngineAvailable) return
+        val signature = _savedSignatures.value.firstOrNull { it.id == _selectedSignatureId.value } ?: return
+        val pageIndex = currentPageIndex
+        viewModelScope.launch {
+            val pngBytes = ByteArrayOutputStream().use { stream ->
+                signature.bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+                stream.toByteArray()
+            }
+            val placed = pdfEditEngine.addImageStamp(pageIndex, xFraction, yFraction, DEFAULT_SIGNATURE_WIDTH_FRACTION, pngBytes)
+            if (placed) {
+                val stamp = SignatureStamp(xFraction, yFraction, DEFAULT_SIGNATURE_WIDTH_FRACTION, signature.bitmap)
+                signatureStampsByPage.getOrPut(pageIndex) { mutableListOf() }.add(stamp)
+                val current = _uiState.value
+                if (current is ReaderUiState.Loaded && current.pageIndex == pageIndex) {
+                    _uiState.value = current.copy(signatureStamps = signatureStampsByPage[pageIndex].orEmpty())
+                }
+            }
+        }
+    }
+
     /**
      * Renders (or returns a cached render of) [pageIndex] at [widthPx]. Used by the
      * thumbnail strip and continuous-scroll layout, which each need page images outside
@@ -284,6 +373,7 @@ class ReaderViewModel(
         pageCacheLock.withLock { pageCache.clear() }
         annotationMarkersByPage.clear()
         pageRotationsDegrees.clear()
+        signatureStampsByPage.clear()
         _pageOpMessage.value = null
         editEngineAvailable = pdfEditEngine.open(source) is PdfOpenResult.Success
 
@@ -322,6 +412,7 @@ class ReaderViewModel(
                 annotationMarkers = annotationMarkersByPage[pageIndex].orEmpty(),
                 canAnnotate = editEngineAvailable,
                 pageRotationDegrees = pageRotationsDegrees.getOrDefault(pageIndex, 0),
+                signatureStamps = signatureStampsByPage[pageIndex].orEmpty(),
             )
         } else {
             _uiState.value = ReaderUiState.Error(PdfOpenError.Unexpected("render returned no page"))

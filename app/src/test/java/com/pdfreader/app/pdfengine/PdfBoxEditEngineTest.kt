@@ -160,6 +160,46 @@ class PdfBoxEditEngineTest {
         }
     }
 
+    /**
+     * A hand-decoded, known-valid 4x4 RGB PNG (generated via `javax.imageio.ImageIO`, not a
+     * hand-crafted minimal PNG) — a 1x1 or paletted/alpha PNG triggers a real Robolectric/
+     * OpenJDK decoder bug (robolectric/robolectric#6812) unrelated to this engine's own code.
+     */
+    private fun tinyPngBytes(): ByteArray = java.util.Base64.getDecoder().decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAADElEQVR4XmNgIB0AAAA0AAGPmztyAAAAAElFTkSuQmCC",
+    )
+
+    @Test
+    fun addImageStampDrawsOntoThePageWithoutChangingPageCount() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val engine = PdfBoxEditEngine(context, ioDispatcher = Dispatchers.Unconfined)
+        val sourceFile = fixtureFile()
+        try {
+            engine.open(PdfSource.LocalFile(sourceFile))
+            val pngBytes = tinyPngBytes()
+
+            val placed = engine.addImageStamp(pageIndex = 0, xFraction = 0.1f, yFraction = 0.2f, widthFraction = 0.3f, pngBytes = pngBytes)
+            assertTrue("addImageStamp should report success", placed)
+
+            // Out-of-range page index must not crash and must report failure.
+            assertTrue(!engine.addImageStamp(pageIndex = 99, xFraction = 0f, yFraction = 0f, widthFraction = 0.1f, pngBytes = pngBytes))
+
+            val tempCopy = engine.writeValidatedTempCopy()
+            assertTrue(tempCopy != null)
+            PDDocument.load(tempCopy!!).use { reopened ->
+                assertEquals(1, reopened.numberOfPages)
+                assertTrue(
+                    "stamping an image should add an XObject resource to the page",
+                    reopened.getPage(0).resources.xObjectNames.iterator().hasNext(),
+                )
+            }
+            tempCopy.delete()
+            engine.close()
+        } finally {
+            sourceFile.delete()
+        }
+    }
+
     @Test
     fun appendDocumentGrowsThePageCountAndLeavesTheSourceUntouched() = runTest {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()

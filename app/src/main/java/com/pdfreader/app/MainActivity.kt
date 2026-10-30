@@ -14,6 +14,8 @@ import com.pdfreader.app.data.documents.ContentResolverDestinationWriter
 import com.pdfreader.app.data.documents.ContentResolverDocumentMetadataResolver
 import com.pdfreader.app.data.recents.RecentDocumentsDatabase
 import com.pdfreader.app.data.recents.RecentDocumentsRepository
+import com.pdfreader.app.data.signatures.ContentResolverImageUriDecoder
+import com.pdfreader.app.data.signatures.LocalFileSignatureRepository
 import com.pdfreader.app.pdfengine.AssetPdfCopier
 import com.pdfreader.app.pdfengine.PdfBoxEditEngine
 import com.pdfreader.app.pdfengine.PlatformPdfRendererEngine
@@ -40,6 +42,8 @@ class MainActivity : ComponentActivity() {
                     ),
                     metadataResolver = ContentResolverDocumentMetadataResolver(applicationContext),
                     destinationWriter = ContentResolverDestinationWriter(applicationContext),
+                    signatureRepository = LocalFileSignatureRepository(applicationContext),
+                    imageUriDecoder = ContentResolverImageUriDecoder(applicationContext),
                 ) as T
             }
         }
@@ -71,6 +75,14 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+    /** PDF-007: user picks an image to import as a visual signature. */
+    private val importSignatureImageLauncher =
+        registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            if (uri != null) {
+                readerViewModel.importSignatureImage(uri)
+            }
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -85,6 +97,7 @@ class MainActivity : ComponentActivity() {
                         createDocumentLauncher.launch(suggestedName)
                     },
                     onMergeDocumentClick = { mergeDocumentLauncher.launch(arrayOf("application/pdf")) },
+                    onImportSignatureImageClick = { importSignatureImageLauncher.launch("image/*") },
                 )
             }
         }
