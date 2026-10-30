@@ -11,7 +11,7 @@
 - [ ] Minimum supported Android API level and target SDK policy.
 - [x] PDF engine for annotations/page-ops/forms: **Approved 2026-10-30** — PDFBox-Android. See DEC-001.
 - [ ] Commercial SDK budget and licensing model — no longer relevant unless DEC-001 is revisited (e.g. the maintenance-staleness risk materializes).
-- [ ] Exact digital-signature profile requirements: certificate formats, PAdES level, timestamps, revocation checks, trust roots, hardware-backed/remote signing. **Proposed 2026-10-30 — see DEC-002.**
+- [x] Exact digital-signature profile requirements: certificate formats, PAdES level, timestamps, revocation checks, trust roots, hardware-backed/remote signing. **Approved 2026-10-30 — see DEC-002.**
 - [ ] Cloud provider, deployment region, data residency, retention and backup/deletion policy.
 - [ ] Is end-to-end encryption required, or is TLS + provider encryption at rest acceptable for MVP? Do not describe the latter as E2EE.
 - [ ] Cloud sharing/collaboration scope and roles.
@@ -44,7 +44,7 @@
 
 ### DEC-002 — Digital-signature profile for PDF-008 (certificate-based signing)
 - Date: 2026-10-30
-- Status: **Proposed** — awaiting the user's approval, same as DEC-001. No signing code has been written; this is a profile recommendation only.
+- Status: **Approved 2026-10-30** by the user. A technical POC (`app/src/test/java/com/pdfreader/app/poc/PdfSignaturePocTest.kt`) has since confirmed the mechanics: PDFBox-Android's external-signing hook + BouncyCastle's CMS API sign a fixture, the signature verifies against the actual signed content, and a single tampered byte is correctly detected (1/1 test passing under `./gradlew testDebugUnitTest`). This profile is cleared to move from POC to a real, UI-backed implementation (PDF-008).
 - Owner: User (decision requested).
 - Context: `docs/ARCHITECTURE.md`/this file gate PDF-008 behind "exact digital-signature profile requirements: certificate formats, PAdES level, timestamps, revocation checks, trust roots, hardware-backed/remote signing." `docs/SECURITY_PRIVACY.md` §5 additionally requires: a vetted crypto library (no custom CMS/PAdES/cert-validation code); verifying byte ranges/digest/chain/expiry/tamper; and explicitly *stating* any limitation on revocation, timestamp, or trust-anchor checking rather than silently skipping it.
 - Research performed (web research, not a code POC — a POC is the next step only after this profile is approved):
@@ -70,7 +70,7 @@
 - Rationale: mirrors DEC-001's approach of presenting evidence-backed options for approval rather than deciding unilaterally (Assumption policy, below) — this touches security claims ("is this signature trustworthy") and product behavior (what a user can and can't do with a signing key) directly enough that it needs explicit sign-off before any code is written, per `docs/ARCHITECTURE.md` §2 and the Assumption policy.
 - Security/privacy impact: if approved as-is, the app will **not** check certificate revocation or provide a long-term-validation story — both must be surfaced in the signing/verification UI as stated limitations, not hidden, per `docs/SECURITY_PRIVACY.md` §5 and §8 ("No release with... false claims about signature... security").
 - Licensing/cost impact: none — BouncyCastle and PDFBox-Android are both already approved/present; no new paid service, TSA subscription, or SDK is introduced by this profile.
-- Consequences and follow-up tasks (not started — blocked on this entry's approval): (1) a small signing-engine POC (mirroring the DEC-001 POC pattern: sign a fixture, reopen, verify the signature validates and the byte range covers the expected content) before any production signing UI; (2) design the PKCS#12-import flow and the Keystore-self-signed flow as explicitly separate, separately-tested features; (3) write the "this app does not check revocation / has no long-term validation story" disclosure into whatever UI shows a signature's status; (4) verify the exact Android API level for PKCS12-related APIs against official Android docs, not secondary sources, before implementation.
+- Consequences and follow-up tasks: (1) **done** — the signing-engine POC passed (see Status above); a real finding from it: Robolectric transitively depends on `org.bouncycastle:bcprov-jdk18on`, a different artifact from (but the same Java package as) the `bcprov/bcpkix-jdk15to18:1.72` PDFBox-Android brings as a production dependency, and having both on the unit-test classpath caused `NoSuchFieldError` from mixed BC class versions — fixed by excluding the `jdk18on` variant from the `testImplementation(libs.robolectric)` dependency in `app/build.gradle.kts` (confirmed via `./gradlew :app:dependencies --configuration debugRuntimeClasspath` that only `jdk15to18` ever reaches the shipped app, so this was a test-classpath-only issue); (2) not started — design the PKCS#12-import flow and the Keystore-self-signed flow as explicitly separate, separately-tested features; (3) not started — write the "this app does not check revocation / has no long-term validation story" disclosure into whatever UI shows a signature's status; (4) not started — verify the exact Android API level for PKCS12-related APIs against official Android docs, not secondary sources, before implementation.
 
 ### Template for future entries
 ### DEC-XXX — [Decision title]

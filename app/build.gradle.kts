@@ -80,7 +80,20 @@ dependencies {
     implementation(libs.pdfbox.android)
 
     testImplementation(libs.junit)
-    testImplementation(libs.robolectric)
+    // Robolectric pulls in org.bouncycastle:bcprov-jdk18on transitively (its own test
+    // infra), which collides on the classpath with the bcprov/bcpkix-jdk15to18:1.72 that
+    // PDFBox-Android brings as a *production* dependency (same java package, different
+    // artifact, so Gradle doesn't dedupe them) — causes NoSuchFieldError when both versions'
+    // classes get mixed at runtime (see PdfSignaturePocTest, DEC-002's signing POC). This
+    // collision is test-classpath-only; confirmed via `./gradlew :app:dependencies
+    // --configuration debugRuntimeClasspath` that only the jdk15to18 variant reaches the
+    // shipped app. Excluding the jdk18on variant here keeps the test classpath consistent
+    // with production.
+    testImplementation(libs.robolectric) {
+        exclude(group = "org.bouncycastle", module = "bcprov-jdk18on")
+        exclude(group = "org.bouncycastle", module = "bcpkix-jdk18on")
+        exclude(group = "org.bouncycastle", module = "bcutil-jdk18on")
+    }
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.androidx.test.junit)
     testImplementation(libs.kotlinx.coroutines.test)
