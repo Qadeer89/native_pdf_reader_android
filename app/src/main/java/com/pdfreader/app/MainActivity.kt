@@ -63,6 +63,14 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+    /** PDF-006: user picks a second PDF whose pages get appended to the one currently open. */
+    private val mergeDocumentLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) {
+                readerViewModel.mergeDocument(uri)
+            }
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -76,6 +84,7 @@ class MainActivity : ComponentActivity() {
                     onExportAnnotatedCopyClick = { suggestedName ->
                         createDocumentLauncher.launch(suggestedName)
                     },
+                    onMergeDocumentClick = { mergeDocumentLauncher.launch(arrayOf("application/pdf")) },
                 )
             }
         }

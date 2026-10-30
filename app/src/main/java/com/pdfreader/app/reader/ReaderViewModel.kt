@@ -67,6 +67,16 @@ class ReaderViewModel(
     private val _exportState = MutableStateFlow<ExportState>(ExportState.Idle)
     val exportState: StateFlow<ExportState> = _exportState.asStateFlow()
 
+    /**
+     * Transient feedback for a page operation (rotate/delete/merge) that just happened.
+     * These operations only affect [pdfEditEngine]'s in-memory document, not what
+     * [pdfEngine] is currently rendering (see class doc) — so the message exists to tell
+     * the user their change is staged and needs [exportAnnotatedCopy] to actually be saved,
+     * since there is no live-updated preview of the new page order/count to show instead.
+     */
+    private val _pageOpMessage = MutableStateFlow<String?>(null)
+    val pageOpMessage: StateFlow<String?> = _pageOpMessage.asStateFlow()
+
     val recentDocuments: StateFlow<List<RecentDocumentEntity>> = recentDocumentsRepository.observeAll()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
@@ -76,6 +86,9 @@ class ReaderViewModel(
 
     /** Normalized marker positions per page index, this session only (not read back from the file). */
     private val annotationMarkersByPage = mutableMapOf<Int, MutableList<Pair<Float, Float>>>()
+
+    /** Visual-only rotation feedback per page index, this session only — see [rotateCurrentPage]. */
+    private val pageRotationsDegrees = mutableMapOf<Int, Int>()
 
     /**
      * Cache of already-rendered page/thumbnail bitmaps for the currently open document,
@@ -191,6 +204,60 @@ class ReaderViewModel(
         _exportState.value = ExportState.Idle
     }
 
+    fun acknowledgePageOpMessage() {
+        _pageOpMessage.value = null
+    }
+
+    /**
+     * Rotates the current page a quarter turn (PDF-006). Unlike annotations, rotation is
+     * safe to preview live without re-rendering via [pdfEngine]: it's a pure visual
+     * transform, so [ReaderUiState.Loaded.pageRotationDegrees] is updated immediately and
+     * the UI applies it as a Compose rotation on top of the unrotated bitmap.
+     */
+    fun rotateCurrentPage() {
+        if (!editEngineAvailable) return
+        val pageIndex = currentPageIndex
+        viewModelScope.launch {
+            if (pdfEditEngine.rotatePage(pageIndex, 90)) {
+                val newRotation = (pageRotationsDegrees.getOrDefault(pageIndex, 0) + 90) % 360
+                pageRotationsDegrees[pageIndex] = newRotation
+                val current = _uiState.value
+                if (current is ReaderUiState.Loaded && current.pageIndex == pageIndex) {
+                    _uiState.value = current.copy(pageRotationDegrees = newRotation)
+                }
+            }
+        }
+    }
+
+    /**
+     * Deletes the current page (PDF-006). This changes the edited document's page count/
+     * order, which [pdfEngine] (still rendering the original, unedited file) has no way to
+     * reflect live — so this only stages the change and reports it via [pageOpMessage];
+     * [exportAnnotatedCopy] is what actually saves it.
+     */
+    fun deleteCurrentPage() {
+        if (!editEngineAvailable) return
+        viewModelScope.launch {
+            _pageOpMessage.value = if (pdfEditEngine.deletePage(currentPageIndex)) {
+                "Page deleted. Export a copy to save this change."
+            } else {
+                "Could not delete this page."
+            }
+        }
+    }
+
+    /** Appends every page of [uri] to the end of the document (PDF-006 merge). Staged like [deleteCurrentPage]. */
+    fun mergeDocument(uri: Uri) {
+        if (!editEngineAvailable) return
+        viewModelScope.launch {
+            _pageOpMessage.value = if (pdfEditEngine.appendDocument(PdfSource.ContentUri(uri))) {
+                "Pages added. Export a copy to save this change."
+            } else {
+                "Could not add pages from that document."
+            }
+        }
+    }
+
     /**
      * Renders (or returns a cached render of) [pageIndex] at [widthPx]. Used by the
      * thumbnail strip and continuous-scroll layout, which each need page images outside
@@ -216,6 +283,8 @@ class ReaderViewModel(
         _uiState.value = ReaderUiState.Loading
         pageCacheLock.withLock { pageCache.clear() }
         annotationMarkersByPage.clear()
+        pageRotationsDegrees.clear()
+        _pageOpMessage.value = null
         editEngineAvailable = pdfEditEngine.open(source) is PdfOpenResult.Success
 
         when (val result = pdfEngine.open(source)) {
@@ -252,6 +321,7 @@ class ReaderViewModel(
                 documentMetadata = currentMetadata,
                 annotationMarkers = annotationMarkersByPage[pageIndex].orEmpty(),
                 canAnnotate = editEngineAvailable,
+                pageRotationDegrees = pageRotationsDegrees.getOrDefault(pageIndex, 0),
             )
         } else {
             _uiState.value = ReaderUiState.Error(PdfOpenError.Unexpected("render returned no page"))

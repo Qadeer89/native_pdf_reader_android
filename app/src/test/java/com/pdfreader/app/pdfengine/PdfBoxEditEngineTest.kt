@@ -68,4 +68,116 @@ class PdfBoxEditEngineTest {
             sourceFile.delete()
         }
     }
+
+    /**
+     * Builds a 3-page working document by appending the (real) 1-page fixture to itself
+     * twice via [PdfEditEngine.appendDocument] — exercising that method and giving the
+     * rotate/delete/move tests below enough pages to be meaningful, without needing a
+     * separate multi-page fixture file.
+     */
+    private suspend fun openThreePageWorkingCopy(engine: PdfEditEngine, fixture: File): PdfOpenResult {
+        val openResult = engine.open(PdfSource.LocalFile(fixture))
+        assertTrue(engine.appendDocument(PdfSource.LocalFile(fixture)))
+        assertTrue(engine.appendDocument(PdfSource.LocalFile(fixture)))
+        assertEquals(3, engine.pageCount())
+        return openResult
+    }
+
+    @Test
+    fun rotatePageNormalizesToTheZeroToThreeHundredSixtyRange() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val engine = PdfBoxEditEngine(context, ioDispatcher = Dispatchers.Unconfined)
+        val sourceFile = fixtureFile()
+        try {
+            openThreePageWorkingCopy(engine, sourceFile)
+
+            assertTrue(engine.rotatePage(0, 90))
+            assertTrue(engine.rotatePage(0, 90))
+            assertTrue(engine.rotatePage(0, 90))
+            assertTrue(engine.rotatePage(0, 90)) // 4 * 90 = 360 -> back to 0
+
+            // Out-of-range page index must not crash and must report failure.
+            assertTrue(!engine.rotatePage(99, 90))
+
+            val tempCopy = engine.writeValidatedTempCopy()
+            assertTrue(tempCopy != null)
+            PDDocument.load(tempCopy!!).use { reopened ->
+                assertEquals(0, reopened.getPage(0).rotation)
+            }
+            tempCopy.delete()
+            engine.close()
+        } finally {
+            sourceFile.delete()
+        }
+    }
+
+    @Test
+    fun deletePageRemovesExactlyThatPage() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val engine = PdfBoxEditEngine(context, ioDispatcher = Dispatchers.Unconfined)
+        val sourceFile = fixtureFile()
+        try {
+            openThreePageWorkingCopy(engine, sourceFile)
+
+            assertTrue(engine.deletePage(1))
+            assertEquals(2, engine.pageCount())
+
+            // Out-of-range page index must not crash and must report failure.
+            assertTrue(!engine.deletePage(99))
+
+            val tempCopy = engine.writeValidatedTempCopy()
+            assertTrue(tempCopy != null)
+            PDDocument.load(tempCopy!!).use { reopened -> assertEquals(2, reopened.numberOfPages) }
+            tempCopy!!.delete()
+            engine.close()
+        } finally {
+            sourceFile.delete()
+        }
+    }
+
+    @Test
+    fun movePageReordersWithoutChangingPageCount() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val engine = PdfBoxEditEngine(context, ioDispatcher = Dispatchers.Unconfined)
+        val sourceFile = fixtureFile()
+        try {
+            openThreePageWorkingCopy(engine, sourceFile)
+
+            assertTrue(engine.movePage(fromIndex = 0, toIndex = 2))
+            assertEquals(3, engine.pageCount())
+
+            // Out-of-range indices must not crash and must report failure.
+            assertTrue(!engine.movePage(fromIndex = 0, toIndex = 99))
+            assertTrue(!engine.movePage(fromIndex = 99, toIndex = 0))
+
+            val tempCopy = engine.writeValidatedTempCopy()
+            assertTrue(tempCopy != null)
+            PDDocument.load(tempCopy!!).use { reopened -> assertEquals(3, reopened.numberOfPages) }
+            tempCopy!!.delete()
+            engine.close()
+        } finally {
+            sourceFile.delete()
+        }
+    }
+
+    @Test
+    fun appendDocumentGrowsThePageCountAndLeavesTheSourceUntouched() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val engine = PdfBoxEditEngine(context, ioDispatcher = Dispatchers.Unconfined)
+        val sourceFile = fixtureFile()
+        try {
+            engine.open(PdfSource.LocalFile(sourceFile))
+            assertEquals(1, engine.pageCount())
+
+            assertTrue(engine.appendDocument(PdfSource.LocalFile(sourceFile)))
+            assertEquals(2, engine.pageCount())
+
+            // The source fixture file itself must be unchanged (never opened for writing).
+            PDDocument.load(sourceFile).use { original -> assertEquals(1, original.numberOfPages) }
+
+            engine.close()
+        } finally {
+            sourceFile.delete()
+        }
+    }
 }

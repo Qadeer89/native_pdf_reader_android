@@ -41,6 +41,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -65,12 +66,15 @@ fun ReaderScreen(
     viewModel: ReaderViewModel,
     onOpenDocumentClick: () -> Unit,
     onExportAnnotatedCopyClick: (suggestedName: String) -> Unit,
+    onMergeDocumentClick: () -> Unit,
 ) {
     val state by viewModel.uiState.collectAsState()
     val layoutMode by viewModel.layoutMode.collectAsState()
     val exportState by viewModel.exportState.collectAsState()
+    val pageOpMessage by viewModel.pageOpMessage.collectAsState()
     val recentDocuments by viewModel.recentDocuments.collectAsState()
     var showRecentMenu by remember { mutableStateOf(false) }
+    var showPageMenu by remember { mutableStateOf(false) }
     var showPropertiesDialog by remember { mutableStateOf(false) }
     var annotateMode by rememberSaveable { mutableStateOf(false) }
 
@@ -116,6 +120,27 @@ fun ReaderScreen(
                                 },
                             ) {
                                 Text(stringResource(R.string.reader_export_action))
+                            }
+                            Box {
+                                TextButton(onClick = { showPageMenu = true }) {
+                                    Text(stringResource(R.string.reader_page_menu_action))
+                                }
+                                PageOpsMenu(
+                                    expanded = showPageMenu,
+                                    onDismiss = { showPageMenu = false },
+                                    onRotate = {
+                                        showPageMenu = false
+                                        viewModel.rotateCurrentPage()
+                                    },
+                                    onDelete = {
+                                        showPageMenu = false
+                                        viewModel.deleteCurrentPage()
+                                    },
+                                    onMerge = {
+                                        showPageMenu = false
+                                        onMergeDocumentClick()
+                                    },
+                                )
                             }
                         }
                     }
@@ -202,13 +227,14 @@ fun ReaderScreen(
                 }
             }
 
-            ExportStateBanner(
-                exportState = exportState,
+            androidx.compose.foundation.layout.Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(16.dp),
-                onDismiss = viewModel::acknowledgeExportState,
-            )
+            ) {
+                PageOpMessageBanner(message = pageOpMessage, onDismiss = viewModel::acknowledgePageOpMessage)
+                ExportStateBanner(exportState = exportState, onDismiss = viewModel::acknowledgeExportState)
+            }
         }
 
         val loadedState = state as? ReaderUiState.Loaded
@@ -236,6 +262,31 @@ private fun ExportStateBanner(exportState: ExportState, modifier: Modifier = Mod
                 Text(exportState.reason)
             }
         }
+    }
+}
+
+@Composable
+private fun PageOpMessageBanner(message: String?, onDismiss: () -> Unit) {
+    if (message != null) {
+        Snackbar(action = { TextButton(onClick = onDismiss) { Text("OK") } }) {
+            Text(message)
+        }
+    }
+}
+
+/** Page-operations menu (PDF-006): rotate/delete the current page, or merge another document in. */
+@Composable
+private fun PageOpsMenu(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    onRotate: () -> Unit,
+    onDelete: () -> Unit,
+    onMerge: () -> Unit,
+) {
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        DropdownMenuItem(text = { Text(stringResource(R.string.reader_page_rotate)) }, onClick = onRotate)
+        DropdownMenuItem(text = { Text(stringResource(R.string.reader_page_delete)) }, onClick = onDelete)
+        DropdownMenuItem(text = { Text(stringResource(R.string.reader_page_merge)) }, onClick = onMerge)
     }
 }
 
@@ -337,6 +388,7 @@ private fun ZoomablePdfPage(
                         .transformable(state = transformState)
                 }
             }
+            .rotate(state.pageRotationDegrees.toFloat())
 
         Image(
             bitmap = remember(state.pageBitmap) { state.pageBitmap.asImageBitmap() },

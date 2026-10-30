@@ -34,6 +34,34 @@ interface PdfEditEngine {
     /** Number of annotations currently on [pageIndex] (0-based), including ones just added. */
     suspend fun annotationCount(pageIndex: Int): Int
 
+    /** Number of pages in the currently open document (reflects deletes/merges done so far). */
+    suspend fun pageCount(): Int
+
+    /**
+     * Rotates [pageIndex] (0-based) by [deltaDegrees] relative to its current rotation
+     * (normalized to one of 0/90/180/270). Pass 90 or -90 for a quarter turn. Returns false
+     * if no document is open or the page index is invalid. PDF-006.
+     */
+    suspend fun rotatePage(pageIndex: Int, deltaDegrees: Int): Boolean
+
+    /** Removes [pageIndex] (0-based) from the open document. PDF-006. */
+    suspend fun deletePage(pageIndex: Int): Boolean
+
+    /**
+     * Moves the page at [fromIndex] to [toIndex] (both 0-based, referring to positions
+     * before the move). Returns false if no document is open or either index is invalid.
+     * PDF-006.
+     */
+    suspend fun movePage(fromIndex: Int, toIndex: Int): Boolean
+
+    /**
+     * Appends every page of [source] to the end of the currently open document (PDF-006
+     * merge). [source] is opened and closed independently — it is never left open or
+     * mutated. Returns false (and leaves the open document unchanged) if [source] can't be
+     * opened or read.
+     */
+    suspend fun appendDocument(source: PdfSource): Boolean
+
     /**
      * Per docs/SECURITY_PRIVACY.md §4 ("write outputs to temporary files, validate/reopen,
      * then atomically commit"): saves the in-progress edits to a new app-private temporary

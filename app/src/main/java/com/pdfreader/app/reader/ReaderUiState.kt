@@ -16,6 +16,8 @@ sealed class ReaderUiState {
         /** Normalized (0f..1f, top-down) positions of note annotations added this session on [pageIndex]. */
         val annotationMarkers: List<Pair<Float, Float>> = emptyList(),
         val canAnnotate: Boolean = false,
+        /** Visual-only rotation feedback for [pageIndex], this session only — see [ReaderViewModel.rotateCurrentPage]. */
+        val pageRotationDegrees: Int = 0,
     ) : ReaderUiState()
 
     data class Error(val error: PdfOpenError) : ReaderUiState()

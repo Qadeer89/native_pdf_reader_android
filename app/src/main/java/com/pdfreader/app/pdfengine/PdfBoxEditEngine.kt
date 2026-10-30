@@ -45,19 +45,7 @@ class PdfBoxEditEngine(
         lock.withLock {
             closeLocked()
             try {
-                val opened = when (source) {
-                    is PdfSource.LocalFile -> {
-                        if (!source.file.exists()) {
-                            return@withContext PdfOpenResult.Failure(PdfOpenError.NotFound(source.file.path))
-                        }
-                        PDDocument.load(source.file)
-                    }
-                    is PdfSource.ContentUri -> {
-                        val input = context.contentResolver.openInputStream(source.uri)
-                            ?: return@withContext PdfOpenResult.Failure(PdfOpenError.NotFound(source.uri.toString()))
-                        input.use { PDDocument.load(it) }
-                    }
-                }
+                val opened = loadDocument(source)
                 document = opened
                 PdfOpenResult.Success(PdfDocumentHandle(pageCount = opened.numberOfPages))
             } catch (e: InvalidPasswordException) {
@@ -69,6 +57,19 @@ class PdfBoxEditEngine(
             } catch (e: Exception) {
                 PdfOpenResult.Failure(PdfOpenError.Unexpected(e.message ?: "unknown error"))
             }
+        }
+    }
+
+    /** Loads [source] as a fresh [PDDocument]; throws on failure, same as `PDDocument.load`. */
+    private fun loadDocument(source: PdfSource): PDDocument = when (source) {
+        is PdfSource.LocalFile -> {
+            if (!source.file.exists()) throw FileNotFoundException(source.file.path)
+            PDDocument.load(source.file)
+        }
+        is PdfSource.ContentUri -> {
+            val input = context.contentResolver.openInputStream(source.uri)
+                ?: throw FileNotFoundException(source.uri.toString())
+            input.use { PDDocument.load(it) }
         }
     }
 
@@ -101,6 +102,71 @@ class PdfBoxEditEngine(
             val doc = document ?: return@withContext 0
             if (pageIndex < 0 || pageIndex >= doc.numberOfPages) return@withContext 0
             doc.getPage(pageIndex).annotations.size
+        }
+    }
+
+    override suspend fun pageCount(): Int = withContext(ioDispatcher) {
+        lock.withLock { document?.numberOfPages ?: 0 }
+    }
+
+    override suspend fun rotatePage(pageIndex: Int, deltaDegrees: Int): Boolean = withContext(ioDispatcher) {
+        lock.withLock {
+            val doc = document ?: return@withContext false
+            if (pageIndex < 0 || pageIndex >= doc.numberOfPages) return@withContext false
+
+            val page = doc.getPage(pageIndex)
+            val normalized = ((page.rotation + deltaDegrees) % 360 + 360) % 360
+            page.rotation = normalized
+            true
+        }
+    }
+
+    override suspend fun deletePage(pageIndex: Int): Boolean = withContext(ioDispatcher) {
+        lock.withLock {
+            val doc = document ?: return@withContext false
+            if (pageIndex < 0 || pageIndex >= doc.numberOfPages) return@withContext false
+            doc.removePage(pageIndex)
+            true
+        }
+    }
+
+    /**
+     * Moves the page at [fromIndex] to [toIndex] by rebuilding the page tree's order from a
+     * plain reordered list, rather than juggling `PDPageTree.insertBefore`/`insertAfter`
+     * against a tree that's shrinking/growing as we go — simpler to get right, and page
+     * counts here are small enough that the extra remove/re-add churn doesn't matter.
+     */
+    override suspend fun movePage(fromIndex: Int, toIndex: Int): Boolean = withContext(ioDispatcher) {
+        lock.withLock {
+            val doc = document ?: return@withContext false
+            val pages = doc.pages
+            val originalOrder = pages.toList()
+            if (fromIndex < 0 || fromIndex >= originalOrder.size || toIndex < 0 || toIndex >= originalOrder.size) {
+                return@withContext false
+            }
+            if (fromIndex == toIndex) return@withContext true
+
+            val reordered = originalOrder.toMutableList()
+            val moved = reordered.removeAt(fromIndex)
+            reordered.add(toIndex, moved)
+
+            originalOrder.forEach { pages.remove(it) }
+            reordered.forEach { pages.add(it) }
+            true
+        }
+    }
+
+    override suspend fun appendDocument(source: PdfSource): Boolean = withContext(ioDispatcher) {
+        lock.withLock {
+            val doc = document ?: return@withContext false
+            try {
+                loadDocument(source).use { sourceDoc ->
+                    sourceDoc.pages.forEach { page -> doc.importPage(page) }
+                }
+                true
+            } catch (_: Exception) {
+                false
+            }
         }
     }
 

@@ -305,6 +305,60 @@ class PdfReaderViewModelSmokeTest {
     }
 
     @Test
+    fun rotateCurrentPageUpdatesTheVisualRotationFeedback() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val viewModel = newViewModel(context, FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT))
+
+        assertEquals(0, (viewModel.uiState.value as ReaderUiState.Loaded).pageRotationDegrees)
+
+        viewModel.rotateCurrentPage()
+        assertEquals(90, (viewModel.uiState.value as ReaderUiState.Loaded).pageRotationDegrees)
+
+        viewModel.rotateCurrentPage()
+        viewModel.rotateCurrentPage()
+        viewModel.rotateCurrentPage()
+        assertEquals(0, (viewModel.uiState.value as ReaderUiState.Loaded).pageRotationDegrees)
+    }
+
+    @Test
+    fun rotateCurrentPageIsANoOpWhenTheEditEngineFailedToOpen() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val viewModel = newViewModel(
+            context,
+            FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT),
+            editEngine = FakePdfEditEngine(openSucceeds = false),
+        )
+
+        viewModel.rotateCurrentPage()
+        assertEquals(0, (viewModel.uiState.value as ReaderUiState.Loaded).pageRotationDegrees)
+    }
+
+    @Test
+    fun deleteCurrentPageReportsStagedFeedback() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val editEngine = FakePdfEditEngine(initialPageCount = MULTI_PAGE_COUNT)
+        val viewModel = newViewModel(context, FakePdfEngine(pageCount = MULTI_PAGE_COUNT), editEngine = editEngine)
+
+        assertEquals(null, viewModel.pageOpMessage.value)
+        viewModel.deleteCurrentPage()
+        assertTrue(viewModel.pageOpMessage.value?.contains("deleted", ignoreCase = true) == true)
+        assertEquals(MULTI_PAGE_COUNT - 1, editEngine.pageCount())
+
+        viewModel.acknowledgePageOpMessage()
+        assertEquals(null, viewModel.pageOpMessage.value)
+    }
+
+    @Test
+    fun mergeDocumentReportsFailureWhenTheEditEngineRejectsIt() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val editEngine = FakePdfEditEngine(appendSucceeds = false)
+        val viewModel = newViewModel(context, FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT), editEngine = editEngine)
+
+        viewModel.mergeDocument(Uri.parse("content://example/document/other"))
+        assertTrue(viewModel.pageOpMessage.value?.contains("Could not", ignoreCase = true) == true)
+    }
+
+    @Test
     fun exportAnnotatedCopySucceedsAndCommitsToTheDestination() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val destinationWriter = FakeDestinationWriter(writeSucceeds = true)
@@ -360,7 +414,11 @@ class PdfReaderViewModelSmokeTest {
     private data class FakeNoteAnnotation(val pageIndex: Int, val xFraction: Float, val yFraction: Float, val text: String)
 
     /** Stands in for [PdfBoxEditEngine] — no real PDFBox document is involved. */
-    private class FakePdfEditEngine(private val openSucceeds: Boolean = true) : PdfEditEngine {
+    private class FakePdfEditEngine(
+        private val openSucceeds: Boolean = true,
+        private val initialPageCount: Int = FIXTURE_PAGE_COUNT,
+        private val appendSucceeds: Boolean = true,
+    ) : PdfEditEngine {
         val addedAnnotations = mutableListOf<FakeNoteAnnotation>()
         private var pageCount = 0
 
@@ -368,7 +426,7 @@ class PdfReaderViewModelSmokeTest {
             if (!openSucceeds) {
                 return PdfOpenResult.Failure(com.pdfreader.app.model.PdfOpenError.Unexpected("fake open failure"))
             }
-            pageCount = FIXTURE_PAGE_COUNT
+            pageCount = initialPageCount
             return PdfOpenResult.Success(PdfDocumentHandle(pageCount = pageCount))
         }
 
@@ -380,6 +438,26 @@ class PdfReaderViewModelSmokeTest {
 
         override suspend fun annotationCount(pageIndex: Int): Int =
             addedAnnotations.count { it.pageIndex == pageIndex }
+
+        override suspend fun pageCount(): Int = pageCount
+
+        override suspend fun rotatePage(pageIndex: Int, deltaDegrees: Int): Boolean =
+            pageIndex in 0 until pageCount
+
+        override suspend fun deletePage(pageIndex: Int): Boolean {
+            if (pageIndex < 0 || pageIndex >= pageCount) return false
+            pageCount--
+            return true
+        }
+
+        override suspend fun movePage(fromIndex: Int, toIndex: Int): Boolean =
+            fromIndex in 0 until pageCount && toIndex in 0 until pageCount
+
+        override suspend fun appendDocument(source: PdfSource): Boolean {
+            if (!appendSucceeds) return false
+            pageCount += FIXTURE_PAGE_COUNT
+            return true
+        }
 
         override suspend fun writeValidatedTempCopy(): File = File.createTempFile("fake-edit", ".pdf")
 
