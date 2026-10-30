@@ -18,7 +18,13 @@ import com.pdfreader.app.model.PdfSource
 import com.pdfreader.app.pdfengine.AssetPdfCopier
 import com.pdfreader.app.pdfengine.PdfEditEngine
 import com.pdfreader.app.pdfengine.PdfEngine
+import com.pdfreader.app.signing.BytesUriReader
+import com.pdfreader.app.signing.Pkcs12SigningMaterialLoader
+import com.pdfreader.app.signing.SigningIdentity
+import com.pdfreader.app.signing.SigningIdentityManager
 import java.io.ByteArrayOutputStream
+import java.security.PrivateKey
+import java.security.cert.X509Certificate
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -39,8 +45,9 @@ enum class PageLayoutMode { SINGLE, CONTINUOUS }
  * Opens a PDF (bundled fixture by default, or a user-picked SAF/share-intent document
  * per PDF-001), renders page(s) via [pdfEngine], and — once DEC-001 (PDFBox-Android) was
  * approved — supports adding simple note annotations (PDF-005), page operations (PDF-006),
- * stamping saved visual signatures via [signatureRepository]/[pdfEditEngine] (PDF-007), and
- * exporting an edited copy (PDF-010).
+ * stamping saved visual signatures via [signatureRepository]/[pdfEditEngine] (PDF-007),
+ * certificate-based digital signing via [signingIdentityManager]/[pkcs12Loader] (PDF-008,
+ * DEC-002), and exporting an edited copy (PDF-010).
  *
  * The two engines are opened in parallel against the *same* [PdfSource] but are otherwise
  * independent (see the doc comment on [PdfEditEngine]): [pdfEngine] drives every page
@@ -62,6 +69,9 @@ class ReaderViewModel(
     private val destinationWriter: DestinationWriter,
     private val signatureRepository: SignatureRepository,
     private val imageUriDecoder: ImageUriDecoder,
+    private val signingIdentityManager: SigningIdentityManager,
+    private val pkcs12Loader: Pkcs12SigningMaterialLoader,
+    private val bytesUriReader: BytesUriReader,
     private val fixtureAssetPath: String = "fixtures/sample.pdf",
     private val clock: () -> Long = System::currentTimeMillis,
 ) : ViewModel() {
@@ -94,6 +104,19 @@ class ReaderViewModel(
     private val _selectedSignatureId = MutableStateFlow<String?>(null)
     val selectedSignatureId: StateFlow<String?> = _selectedSignatureId.asStateFlow()
 
+    private val _signingIdentities = MutableStateFlow<List<SigningIdentity>>(emptyList())
+    val signingIdentities: StateFlow<List<SigningIdentity>> = _signingIdentities.asStateFlow()
+
+    private val _signState = MutableStateFlow<ExportState>(ExportState.Idle)
+    val signState: StateFlow<ExportState> = _signState.asStateFlow()
+
+    /** True once a PKCS#12 file has been picked and read, awaiting its password (PDF-008). */
+    private val _pkcs12AwaitingPassword = MutableStateFlow(false)
+    val pkcs12AwaitingPassword: StateFlow<Boolean> = _pkcs12AwaitingPassword.asStateFlow()
+
+    /** Decrypted only transiently, in memory, for a single sign operation — never persisted. */
+    private var pendingPkcs12Bytes: ByteArray? = null
+
     private var pageCount: Int = 0
     private var currentPageIndex: Int = 0
     private var editEngineAvailable: Boolean = false
@@ -120,6 +143,7 @@ class ReaderViewModel(
     init {
         loadFixture()
         viewModelScope.launch { refreshSavedSignatures() }
+        viewModelScope.launch { refreshSigningIdentities() }
     }
 
     private suspend fun refreshSavedSignatures() {
@@ -128,6 +152,10 @@ class ReaderViewModel(
         if (_selectedSignatureId.value == null) {
             _selectedSignatureId.value = signatures.lastOrNull()?.id
         }
+    }
+
+    private suspend fun refreshSigningIdentities() {
+        _signingIdentities.value = signingIdentityManager.listIdentities()
     }
 
     private fun loadFixture() {
@@ -345,6 +373,105 @@ class ReaderViewModel(
                 }
             }
         }
+    }
+
+    /** Creates a new device-bound signing identity named [displayName] (PDF-008, DEC-002). */
+    fun createSigningIdentity(displayName: String) {
+        viewModelScope.launch {
+            signingIdentityManager.createIdentity(displayName)
+            refreshSigningIdentities()
+        }
+    }
+
+    /** Permanently deletes signing identity [alias]. It cannot be recovered afterward. PDF-008. */
+    fun deleteSigningIdentity(alias: String) {
+        viewModelScope.launch {
+            signingIdentityManager.deleteIdentity(alias)
+            refreshSigningIdentities()
+        }
+    }
+
+    /** Signs the current document with the Keystore-backed identity [alias] and commits it to [destination]. PDF-008. */
+    fun signWithIdentity(alias: String, destination: Uri) {
+        if (!editEngineAvailable) return
+        viewModelScope.launch {
+            _signState.value = ExportState.Saving
+            val material = signingIdentityManager.loadSigningMaterial(alias)
+            if (material == null) {
+                _signState.value = ExportState.Failure("That signing identity is no longer available.")
+                return@launch
+            }
+            val displayName = _signingIdentities.value.firstOrNull { it.alias == alias }?.displayName ?: alias
+            finishSigning(displayName, material.first, material.second, destination)
+        }
+    }
+
+    /** Reads [uri] into memory and signals [pkcs12AwaitingPassword] so the UI can prompt for its password. PDF-008. */
+    fun importPkcs12(uri: Uri) {
+        viewModelScope.launch {
+            val bytes = bytesUriReader.read(uri)
+            if (bytes == null) {
+                _signState.value = ExportState.Failure("Could not read that file.")
+                return@launch
+            }
+            pendingPkcs12Bytes = bytes
+            _pkcs12AwaitingPassword.value = true
+        }
+    }
+
+    /** Cancels an in-progress PKCS#12 import, discarding any bytes already read. PDF-008. */
+    fun cancelPkcs12Import() {
+        pendingPkcs12Bytes = null
+        _pkcs12AwaitingPassword.value = false
+    }
+
+    /**
+     * Decrypts the previously-imported PKCS#12 file with [password], signs the current
+     * document with it, and commits the result to [destination] — [password] and the
+     * decrypted key material are never retained past this single call. PDF-008.
+     */
+    fun signWithImportedPkcs12(password: CharArray, destination: Uri) {
+        if (!editEngineAvailable) return
+        val bytes = pendingPkcs12Bytes
+        _pkcs12AwaitingPassword.value = false
+        pendingPkcs12Bytes = null
+        if (bytes == null) {
+            _signState.value = ExportState.Failure("No certificate file was selected.")
+            return
+        }
+        viewModelScope.launch {
+            _signState.value = ExportState.Saving
+            val material = pkcs12Loader.load(bytes, password)
+            if (material == null) {
+                _signState.value = ExportState.Failure("Could not open that certificate — check the password.")
+                return@launch
+            }
+            finishSigning("Imported certificate", material.first, material.second, destination)
+        }
+    }
+
+    private suspend fun finishSigning(
+        signerName: String,
+        privateKey: PrivateKey,
+        certificateChain: List<X509Certificate>,
+        destination: Uri,
+    ) {
+        val signedTemp = pdfEditEngine.signWithDetachedCms(signerName, privateKey, certificateChain)
+        if (signedTemp == null) {
+            _signState.value = ExportState.Failure("Could not sign this document.")
+            return
+        }
+        val committed = destinationWriter.writeFileToUri(signedTemp, destination)
+        signedTemp.delete()
+        _signState.value = if (committed) {
+            ExportState.Success
+        } else {
+            ExportState.Failure("Could not save the signed copy.")
+        }
+    }
+
+    fun acknowledgeSignState() {
+        _signState.value = ExportState.Idle
     }
 
     /**

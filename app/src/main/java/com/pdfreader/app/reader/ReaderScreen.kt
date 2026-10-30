@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import com.pdfreader.app.R
 import com.pdfreader.app.data.recents.RecentDocumentEntity
 import com.pdfreader.app.data.signatures.SavedSignature
+import com.pdfreader.app.signing.SigningIdentity
 
 private const val MIN_ZOOM_SCALE = 1f
 private const val MAX_ZOOM_SCALE = 5f
@@ -75,19 +76,27 @@ fun ReaderScreen(
     onExportAnnotatedCopyClick: (suggestedName: String) -> Unit,
     onMergeDocumentClick: () -> Unit,
     onImportSignatureImageClick: () -> Unit,
+    onSignWithIdentityClick: (alias: String, suggestedName: String) -> Unit,
+    onImportPkcs12Click: () -> Unit,
+    onPkcs12PasswordSubmittedClick: (password: CharArray, suggestedName: String) -> Unit,
 ) {
     val state by viewModel.uiState.collectAsState()
     val layoutMode by viewModel.layoutMode.collectAsState()
     val exportState by viewModel.exportState.collectAsState()
+    val signState by viewModel.signState.collectAsState()
     val pageOpMessage by viewModel.pageOpMessage.collectAsState()
     val recentDocuments by viewModel.recentDocuments.collectAsState()
     val savedSignatures by viewModel.savedSignatures.collectAsState()
+    val signingIdentities by viewModel.signingIdentities.collectAsState()
+    val pkcs12AwaitingPassword by viewModel.pkcs12AwaitingPassword.collectAsState()
     var showRecentMenu by remember { mutableStateOf(false) }
     var showPageMenu by remember { mutableStateOf(false) }
     var showSignMenu by remember { mutableStateOf(false) }
+    var showDigitalSignMenu by remember { mutableStateOf(false) }
     var showPropertiesDialog by remember { mutableStateOf(false) }
     var showDrawSignatureDialog by remember { mutableStateOf(false) }
     var showTypeSignatureDialog by remember { mutableStateOf(false) }
+    var showCreateIdentityDialog by remember { mutableStateOf(false) }
     var annotateMode by rememberSaveable { mutableStateOf(false) }
     var signatureMode by rememberSaveable { mutableStateOf(false) }
 
@@ -203,6 +212,32 @@ fun ReaderScreen(
                                     onDelete = viewModel::deleteSignature,
                                 )
                             }
+                            Box {
+                                TextButton(onClick = { showDigitalSignMenu = true }) {
+                                    Text(stringResource(R.string.reader_digital_sign_action))
+                                }
+                                val baseName = loaded.documentMetadata?.displayName
+                                    ?.removeSuffix(".pdf")
+                                    ?: "document"
+                                DigitalSignMenu(
+                                    expanded = showDigitalSignMenu,
+                                    signingIdentities = signingIdentities,
+                                    onDismiss = { showDigitalSignMenu = false },
+                                    onCreateNewIdentity = {
+                                        showDigitalSignMenu = false
+                                        showCreateIdentityDialog = true
+                                    },
+                                    onSignWithIdentity = { alias ->
+                                        showDigitalSignMenu = false
+                                        onSignWithIdentityClick(alias, "$baseName-signed.pdf")
+                                    },
+                                    onDeleteIdentity = viewModel::deleteSigningIdentity,
+                                    onImportPkcs12 = {
+                                        showDigitalSignMenu = false
+                                        onImportPkcs12Click()
+                                    },
+                                )
+                            }
                         }
                     }
                     Box {
@@ -302,6 +337,7 @@ fun ReaderScreen(
             ) {
                 PageOpMessageBanner(message = pageOpMessage, onDismiss = viewModel::acknowledgePageOpMessage)
                 ExportStateBanner(exportState = exportState, onDismiss = viewModel::acknowledgeExportState)
+                SignStateBanner(signState = signState, onDismiss = viewModel::acknowledgeSignState)
             }
         }
 
@@ -330,6 +366,22 @@ fun ReaderScreen(
                 },
             )
         }
+        if (showCreateIdentityDialog) {
+            CreateSigningIdentityDialog(
+                onDismiss = { showCreateIdentityDialog = false },
+                onCreate = { displayName ->
+                    viewModel.createSigningIdentity(displayName)
+                    showCreateIdentityDialog = false
+                },
+            )
+        }
+        if (pkcs12AwaitingPassword) {
+            val baseName = loadedState?.documentMetadata?.displayName?.removeSuffix(".pdf") ?: "document"
+            Pkcs12PasswordDialog(
+                onDismiss = { viewModel.cancelPkcs12Import() },
+                onSubmit = { password -> onPkcs12PasswordSubmittedClick(password, "$baseName-signed.pdf") },
+            )
+        }
     }
 }
 
@@ -346,6 +398,24 @@ private fun ExportStateBanner(exportState: ExportState, modifier: Modifier = Mod
         is ExportState.Failure -> {
             Snackbar(modifier = modifier, action = { TextButton(onClick = onDismiss) { Text("OK") } }) {
                 Text(exportState.reason)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SignStateBanner(signState: ExportState, modifier: Modifier = Modifier, onDismiss: () -> Unit) {
+    when (signState) {
+        is ExportState.Idle -> Unit
+        is ExportState.Saving -> Snackbar(modifier = modifier) { Text(stringResource(R.string.digital_sign_saving)) }
+        is ExportState.Success -> {
+            Snackbar(modifier = modifier, action = { TextButton(onClick = onDismiss) { Text("OK") } }) {
+                Text(stringResource(R.string.digital_sign_success))
+            }
+        }
+        is ExportState.Failure -> {
+            Snackbar(modifier = modifier, action = { TextButton(onClick = onDismiss) { Text("OK") } }) {
+                Text(signState.reason)
             }
         }
     }
@@ -647,6 +717,116 @@ private fun SignatureMenu(
             }
         }
     }
+}
+
+/**
+ * Menu for certificate-based digital signing (PDF-008, DEC-002): create/select a device-bound
+ * Keystore identity, or sign with an imported PKCS#12 certificate. Deliberately a separate
+ * menu/button from [SignatureMenu] (visual signatures, PDF-007) — the two are different
+ * things (an image stamp vs. a cryptographic signature) and this project's security doc
+ * requires not conflating them in the UI.
+ */
+@Composable
+private fun DigitalSignMenu(
+    expanded: Boolean,
+    signingIdentities: List<SigningIdentity>,
+    onDismiss: () -> Unit,
+    onCreateNewIdentity: () -> Unit,
+    onSignWithIdentity: (alias: String) -> Unit,
+    onDeleteIdentity: (alias: String) -> Unit,
+    onImportPkcs12: () -> Unit,
+) {
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        // DEC-002 (docs/DECISIONS_AND_OPEN_QUESTIONS.md): this app does not check certificate
+        // revocation or offer long-term validation in this version — disclosed here.
+        DropdownMenuItem(
+            text = {
+                Text(
+                    stringResource(R.string.reader_digital_sign_menu_disclaimer),
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            },
+            onClick = {},
+            enabled = false,
+        )
+        HorizontalDivider()
+        DropdownMenuItem(text = { Text(stringResource(R.string.reader_digital_sign_menu_new_identity)) }, onClick = onCreateNewIdentity)
+        DropdownMenuItem(text = { Text(stringResource(R.string.reader_digital_sign_menu_import_pkcs12)) }, onClick = onImportPkcs12)
+        if (signingIdentities.isNotEmpty()) {
+            HorizontalDivider()
+            signingIdentities.forEach { identity ->
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.reader_digital_sign_menu_use_identity, identity.displayName)) },
+                    onClick = { onSignWithIdentity(identity.alias) },
+                    trailingIcon = {
+                        TextButton(onClick = { onDeleteIdentity(identity.alias) }) {
+                            Text(stringResource(R.string.reader_digital_sign_menu_delete_identity))
+                        }
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CreateSigningIdentityDialog(onDismiss: () -> Unit, onCreate: (displayName: String) -> Unit) {
+    var displayName by rememberSaveable { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.digital_sign_create_identity_title)) },
+        text = {
+            androidx.compose.foundation.layout.Column {
+                OutlinedTextField(
+                    value = displayName,
+                    onValueChange = { displayName = it },
+                    singleLine = true,
+                    placeholder = { Text(stringResource(R.string.digital_sign_create_identity_placeholder)) },
+                )
+                Text(
+                    stringResource(R.string.digital_sign_create_identity_disclaimer),
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = displayName.isNotBlank(), onClick = { onCreate(displayName) }) {
+                Text(stringResource(R.string.digital_sign_create_action))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.signature_cancel)) }
+        },
+    )
+}
+
+@Composable
+private fun Pkcs12PasswordDialog(onDismiss: () -> Unit, onSubmit: (password: CharArray) -> Unit) {
+    var password by rememberSaveable { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.digital_sign_pkcs12_password_title)) },
+        text = {
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                singleLine = true,
+                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                placeholder = { Text(stringResource(R.string.digital_sign_pkcs12_password_placeholder)) },
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onSubmit(password.toCharArray()) }) {
+                Text(stringResource(R.string.digital_sign_pkcs12_sign_action))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.signature_cancel)) }
+        },
+    )
 }
 
 /** Draw-a-signature dialog (PDF-007): finger-drawn strokes, rendered to a transparent-background bitmap on save. */

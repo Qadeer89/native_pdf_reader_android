@@ -40,4 +40,19 @@
     <string name="signature_save">Save</string>
     <string name="signature_clear">Clear</string>
     <string name="signature_cancel">Cancel</string>
+    <string name="reader_digital_sign_action">Digitally sign</string>
+    <string name="reader_digital_sign_menu_disclaimer">No revocation or timestamp checking in this version</string>
+    <string name="reader_digital_sign_menu_new_identity">Create new signing identity…</string>
+    <string name="reader_digital_sign_menu_use_identity">Sign with %1$s</string>
+    <string name="reader_digital_sign_menu_delete_identity">✕</string>
+    <string name="reader_digital_sign_menu_import_pkcs12">Sign with imported certificate (.p12)…</string>
+    <string name="digital_sign_create_identity_title">New signing identity</string>
+    <string name="digital_sign_create_identity_placeholder">Your name</string>
+    <string name="digital_sign_create_identity_disclaimer">Stored only on this device — lost on reinstall or device change</string>
+    <string name="digital_sign_create_action">Create</string>
+    <string name="digital_sign_pkcs12_password_title">Certificate password</string>
+    <string name="digital_sign_pkcs12_password_placeholder">Password</string>
+    <string name="digital_sign_pkcs12_sign_action">Sign</string>
+    <string name="digital_sign_saving">Signing document…</string>
+    <string name="digital_sign_success">Saved the signed copy.</string>
 </resources>

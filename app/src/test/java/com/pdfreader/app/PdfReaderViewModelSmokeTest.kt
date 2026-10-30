@@ -24,7 +24,14 @@ import com.pdfreader.app.reader.ExportState
 import com.pdfreader.app.reader.PageLayoutMode
 import com.pdfreader.app.reader.ReaderUiState
 import com.pdfreader.app.reader.ReaderViewModel
+import com.pdfreader.app.signing.BytesUriReader
+import com.pdfreader.app.signing.Pkcs12SigningMaterialLoader
+import com.pdfreader.app.signing.SigningIdentity
+import com.pdfreader.app.signing.SigningIdentityManager
 import java.io.File
+import java.security.KeyPairGenerator
+import java.security.PrivateKey
+import java.security.cert.X509Certificate
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
@@ -40,6 +47,29 @@ private const val FIXTURE_PAGE_COUNT = 1
 private const val MULTI_PAGE_COUNT = 3
 private const val FAKE_RENDER_WIDTH = 400
 private const val FAKE_RENDER_HEIGHT = 500
+
+/** A throwaway key/certificate pair for signing-related fakes — never inspected by them. */
+private fun generateTestKeyAndCertificate(): Pair<PrivateKey, X509Certificate> {
+    if (java.security.Security.getProvider(org.bouncycastle.jce.provider.BouncyCastleProvider.PROVIDER_NAME) == null) {
+        java.security.Security.addProvider(org.bouncycastle.jce.provider.BouncyCastleProvider())
+    }
+    val keyPair = KeyPairGenerator.getInstance("RSA").apply { initialize(2048) }.generateKeyPair()
+    val now = System.currentTimeMillis()
+    val subject = org.bouncycastle.asn1.x500.X500Name("CN=Fake Test Signer")
+    val certBuilder = org.bouncycastle.cert.X509v3CertificateBuilder(
+        subject,
+        java.math.BigInteger.valueOf(now),
+        java.util.Date(now),
+        java.util.Date(now + 365L * 24 * 60 * 60 * 1000),
+        subject,
+        org.bouncycastle.asn1.x509.SubjectPublicKeyInfo.getInstance(keyPair.public.encoded),
+    )
+    val signer = org.bouncycastle.operator.jcajce.JcaContentSignerBuilder("SHA256withRSA").build(keyPair.private)
+    val certificate = org.bouncycastle.cert.jcajce.JcaX509CertificateConverter()
+        .setProvider(org.bouncycastle.jce.provider.BouncyCastleProvider.PROVIDER_NAME)
+        .getCertificate(certBuilder.build(signer))
+    return keyPair.private to certificate
+}
 
 /**
  * Phase 1/2 vertical-slice smoke tests (MASTER_PROMPT.md workflow step 3), actually
@@ -93,6 +123,9 @@ class PdfReaderViewModelSmokeTest {
         destinationWriter: DestinationWriter = FakeDestinationWriter(),
         signatureRepository: SignatureRepository = FakeSignatureRepository(),
         imageUriDecoder: ImageUriDecoder = FakeImageUriDecoder(),
+        signingIdentityManager: SigningIdentityManager = FakeSigningIdentityManager(),
+        pkcs12Loader: Pkcs12SigningMaterialLoader = FakePkcs12SigningMaterialLoader(),
+        bytesUriReader: BytesUriReader = FakeBytesUriReader(),
     ): ReaderViewModel {
         val db = Room.inMemoryDatabaseBuilder(context, RecentDocumentsDatabase::class.java)
             .allowMainThreadQueries()
@@ -107,6 +140,9 @@ class PdfReaderViewModelSmokeTest {
             destinationWriter = destinationWriter,
             signatureRepository = signatureRepository,
             imageUriDecoder = imageUriDecoder,
+            signingIdentityManager = signingIdentityManager,
+            pkcs12Loader = pkcs12Loader,
+            bytesUriReader = bytesUriReader,
         )
         viewModelStore.put(db.hashCode().toString(), viewModel)
         return viewModel
@@ -366,6 +402,126 @@ class PdfReaderViewModelSmokeTest {
     }
 
     @Test
+    fun createSigningIdentityAddsItToSigningIdentities() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val viewModel = newViewModel(context, FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT))
+        assertEquals(emptyList<SigningIdentity>(), viewModel.signingIdentities.value)
+
+        viewModel.createSigningIdentity("Jane Doe")
+
+        assertEquals(1, viewModel.signingIdentities.value.size)
+        assertEquals("Jane Doe", viewModel.signingIdentities.value.first().displayName)
+    }
+
+    @Test
+    fun deleteSigningIdentityRemovesIt() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val viewModel = newViewModel(context, FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT))
+        viewModel.createSigningIdentity("Jane Doe")
+        val alias = viewModel.signingIdentities.value.first().alias
+
+        viewModel.deleteSigningIdentity(alias)
+
+        assertEquals(emptyList<SigningIdentity>(), viewModel.signingIdentities.value)
+    }
+
+    @Test
+    fun signWithIdentitySignsAndCommitsToTheDestination() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val destinationWriter = FakeDestinationWriter(writeSucceeds = true)
+        val editEngine = FakePdfEditEngine()
+        val viewModel = newViewModel(
+            context,
+            FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT),
+            editEngine = editEngine,
+            destinationWriter = destinationWriter,
+        )
+        viewModel.createSigningIdentity("Jane Doe")
+        val alias = viewModel.signingIdentities.value.first().alias
+
+        val destination = Uri.parse("content://example/document/signed")
+        viewModel.signWithIdentity(alias, destination)
+
+        val state = awaitExportState(viewModel, viewModel::signState) { it !is ExportState.Saving }
+        assertTrue("expected Success but got $state", state is ExportState.Success)
+        assertEquals(destination, destinationWriter.lastDestination)
+        assertEquals(listOf("Jane Doe"), editEngine.signRequests)
+    }
+
+    @Test
+    fun signWithIdentityFailsWhenTheEngineRejectsTheSignature() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val editEngine = FakePdfEditEngine().apply { signWithDetachedCmsSucceeds = false }
+        val viewModel = newViewModel(context, FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT), editEngine = editEngine)
+        viewModel.createSigningIdentity("Jane Doe")
+        val alias = viewModel.signingIdentities.value.first().alias
+
+        viewModel.signWithIdentity(alias, Uri.parse("content://example/document/signed"))
+
+        val state = awaitExportState(viewModel, viewModel::signState) { it !is ExportState.Saving }
+        assertTrue("expected Failure but got $state", state is ExportState.Failure)
+    }
+
+    @Test
+    fun importPkcs12AwaitsPasswordThenSignsOnSubmit() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val destinationWriter = FakeDestinationWriter(writeSucceeds = true)
+        val editEngine = FakePdfEditEngine()
+        val viewModel = newViewModel(
+            context,
+            FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT),
+            editEngine = editEngine,
+            destinationWriter = destinationWriter,
+            bytesUriReader = FakeBytesUriReader(result = byteArrayOf(1, 2, 3)),
+        )
+        assertEquals(false, viewModel.pkcs12AwaitingPassword.value)
+
+        viewModel.importPkcs12(Uri.parse("content://example/certificate.p12"))
+        assertEquals(true, viewModel.pkcs12AwaitingPassword.value)
+
+        val destination = Uri.parse("content://example/document/signed")
+        viewModel.signWithImportedPkcs12("secret".toCharArray(), destination)
+
+        assertEquals("password prompt should be dismissed once submitted", false, viewModel.pkcs12AwaitingPassword.value)
+        val state = awaitExportState(viewModel, viewModel::signState) { it !is ExportState.Saving }
+        assertTrue("expected Success but got $state", state is ExportState.Success)
+        assertEquals(destination, destinationWriter.lastDestination)
+    }
+
+    @Test
+    fun signWithImportedPkcs12FailsWhenThePasswordIsWrong() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val viewModel = newViewModel(
+            context,
+            FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT),
+            pkcs12Loader = FakePkcs12SigningMaterialLoader(loadSucceeds = false),
+            bytesUriReader = FakeBytesUriReader(result = byteArrayOf(1, 2, 3)),
+        )
+        viewModel.importPkcs12(Uri.parse("content://example/certificate.p12"))
+
+        viewModel.signWithImportedPkcs12("wrong".toCharArray(), Uri.parse("content://example/document/signed"))
+
+        val state = awaitExportState(viewModel, viewModel::signState) { it !is ExportState.Saving }
+        assertTrue("expected Failure but got $state", state is ExportState.Failure)
+    }
+
+    @Test
+    fun cancelPkcs12ImportDismissesThePasswordPrompt() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val viewModel = newViewModel(
+            context,
+            FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT),
+            bytesUriReader = FakeBytesUriReader(result = byteArrayOf(1, 2, 3)),
+        )
+        viewModel.importPkcs12(Uri.parse("content://example/certificate.p12"))
+        assertEquals(true, viewModel.pkcs12AwaitingPassword.value)
+
+        viewModel.cancelPkcs12Import()
+
+        assertEquals(false, viewModel.pkcs12AwaitingPassword.value)
+    }
+
+    @Test
     fun saveSignatureAddsItToSavedSignaturesAndSelectsIt() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val signatureRepository = FakeSignatureRepository()
@@ -484,11 +640,17 @@ class PdfReaderViewModelSmokeTest {
     private suspend fun awaitExportState(
         viewModel: ReaderViewModel,
         predicate: (ExportState) -> Boolean,
+    ): ExportState = awaitExportState(viewModel, viewModel::exportState, predicate)
+
+    private suspend fun awaitExportState(
+        viewModel: ReaderViewModel,
+        stateAccessor: () -> kotlinx.coroutines.flow.StateFlow<ExportState>,
+        predicate: (ExportState) -> Boolean,
     ): ExportState = withTimeout(5_000) {
-        var current = viewModel.exportState.value
+        var current = stateAccessor().value
         while (!predicate(current)) {
             delay(5)
-            current = viewModel.exportState.value
+            current = stateAccessor().value
         }
         current
     }
@@ -561,6 +723,19 @@ class PdfReaderViewModelSmokeTest {
             return true
         }
 
+        var signWithDetachedCmsSucceeds: Boolean = true
+        val signRequests = mutableListOf<String>()
+
+        override suspend fun signWithDetachedCms(
+            signerName: String,
+            privateKey: java.security.PrivateKey,
+            certificateChain: List<java.security.cert.X509Certificate>,
+        ): File? {
+            if (!signWithDetachedCmsSucceeds) return null
+            signRequests += signerName
+            return File.createTempFile("fake-signed", ".pdf")
+        }
+
         override suspend fun writeValidatedTempCopy(): File = File.createTempFile("fake-edit", ".pdf")
 
         override suspend fun close() {
@@ -598,6 +773,49 @@ class PdfReaderViewModelSmokeTest {
     /** Stands in for [ContentResolverImageUriDecoder]. */
     private class FakeImageUriDecoder(private val result: Bitmap? = null) : ImageUriDecoder {
         override suspend fun decode(uri: Uri): Bitmap? = result
+    }
+
+    /** In-memory stand-in for [AndroidKeystoreSigningIdentityManager] — no real Keystore involved. */
+    private class FakeSigningIdentityManager(initial: List<SigningIdentity> = emptyList()) : SigningIdentityManager {
+        private val identities = initial.toMutableList()
+
+        override suspend fun listIdentities(): List<SigningIdentity> = identities.toList()
+
+        override suspend fun createIdentity(displayName: String): SigningIdentity {
+            val (_, certificate) = generateTestKeyAndCertificate()
+            val identity = SigningIdentity(
+                alias = "fake-alias-${identities.size}",
+                displayName = displayName,
+                certificate = certificate,
+                createdAtEpochMillis = 0L,
+            )
+            identities += identity
+            return identity
+        }
+
+        override suspend fun deleteIdentity(alias: String) {
+            identities.removeAll { it.alias == alias }
+        }
+
+        override suspend fun loadSigningMaterial(alias: String): Pair<PrivateKey, List<X509Certificate>>? {
+            if (identities.none { it.alias == alias }) return null
+            val (privateKey, certificate) = generateTestKeyAndCertificate()
+            return privateKey to listOf(certificate)
+        }
+    }
+
+    /** Stands in for [BouncyCastlePkcs12SigningMaterialLoader]. */
+    private class FakePkcs12SigningMaterialLoader(private val loadSucceeds: Boolean = true) : Pkcs12SigningMaterialLoader {
+        override suspend fun load(pkcs12Bytes: ByteArray, password: CharArray): Pair<PrivateKey, List<X509Certificate>>? {
+            if (!loadSucceeds) return null
+            val (privateKey, certificate) = generateTestKeyAndCertificate()
+            return privateKey to listOf(certificate)
+        }
+    }
+
+    /** Stands in for [ContentResolverBytesUriReader]. */
+    private class FakeBytesUriReader(private val result: ByteArray? = ByteArray(0)) : BytesUriReader {
+        override suspend fun read(uri: Uri): ByteArray? = result
     }
 
     /** Stands in for [PlatformPdfRendererEngine] — see class-level doc for why. */

@@ -21,6 +21,9 @@ import com.pdfreader.app.pdfengine.PdfBoxEditEngine
 import com.pdfreader.app.pdfengine.PlatformPdfRendererEngine
 import com.pdfreader.app.reader.ReaderScreen
 import com.pdfreader.app.reader.ReaderViewModel
+import com.pdfreader.app.signing.AndroidKeystoreSigningIdentityManager
+import com.pdfreader.app.signing.BouncyCastlePkcs12SigningMaterialLoader
+import com.pdfreader.app.signing.ContentResolverBytesUriReader
 import com.pdfreader.app.ui.theme.PdfReaderTheme
 
 /**
@@ -44,6 +47,9 @@ class MainActivity : ComponentActivity() {
                     destinationWriter = ContentResolverDestinationWriter(applicationContext),
                     signatureRepository = LocalFileSignatureRepository(applicationContext),
                     imageUriDecoder = ContentResolverImageUriDecoder(applicationContext),
+                    signingIdentityManager = AndroidKeystoreSigningIdentityManager(),
+                    pkcs12Loader = BouncyCastlePkcs12SigningMaterialLoader(),
+                    bytesUriReader = ContentResolverBytesUriReader(applicationContext),
                 ) as T
             }
         }
@@ -83,6 +89,42 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+    /**
+     * PDF-008: which signing operation [signDestinationLauncher]'s result should finish —
+     * set right before launching it, since the destination picker is the last step of
+     * either signing flow (Keystore identity or PKCS#12 import) and both need to share one
+     * `CreateDocument` launcher.
+     */
+    private sealed class PendingSignAction {
+        data class WithIdentity(val alias: String) : PendingSignAction()
+        data class WithPkcs12(val password: CharArray) : PendingSignAction()
+    }
+
+    private var pendingSignAction: PendingSignAction? = null
+
+    /** PDF-008: user picks where to save the signed copy; never overwrites the original. */
+    private val signDestinationLauncher =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+            val action = pendingSignAction
+            pendingSignAction = null
+            if (uri != null && action != null) {
+                when (action) {
+                    is PendingSignAction.WithIdentity -> readerViewModel.signWithIdentity(action.alias, uri)
+                    is PendingSignAction.WithPkcs12 -> readerViewModel.signWithImportedPkcs12(action.password, uri)
+                }
+            } else {
+                readerViewModel.acknowledgeSignState()
+            }
+        }
+
+    /** PDF-008: user picks a PKCS#12 (.p12/.pfx) file to sign with. */
+    private val importPkcs12Launcher =
+        registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            if (uri != null) {
+                readerViewModel.importPkcs12(uri)
+            }
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -98,6 +140,15 @@ class MainActivity : ComponentActivity() {
                     },
                     onMergeDocumentClick = { mergeDocumentLauncher.launch(arrayOf("application/pdf")) },
                     onImportSignatureImageClick = { importSignatureImageLauncher.launch("image/*") },
+                    onSignWithIdentityClick = { alias, suggestedName ->
+                        pendingSignAction = PendingSignAction.WithIdentity(alias)
+                        signDestinationLauncher.launch(suggestedName)
+                    },
+                    onImportPkcs12Click = { importPkcs12Launcher.launch("*/*") },
+                    onPkcs12PasswordSubmittedClick = { password, suggestedName ->
+                        pendingSignAction = PendingSignAction.WithPkcs12(password)
+                        signDestinationLauncher.launch(suggestedName)
+                    },
                 )
             }
         }

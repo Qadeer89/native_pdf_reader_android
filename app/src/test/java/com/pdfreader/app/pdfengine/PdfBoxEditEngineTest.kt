@@ -200,6 +200,57 @@ class PdfBoxEditEngineTest {
         }
     }
 
+    /** Self-signed test cert — same approach as `PdfSignaturePocTest`, whose mechanics this reuses via [PdfBoxEditEngine]. */
+    private fun generateSelfSignedCertificate(): Pair<java.security.KeyPair, java.security.cert.X509Certificate> {
+        if (java.security.Security.getProvider(org.bouncycastle.jce.provider.BouncyCastleProvider.PROVIDER_NAME) == null) {
+            java.security.Security.addProvider(org.bouncycastle.jce.provider.BouncyCastleProvider())
+        }
+        val keyPair = java.security.KeyPairGenerator.getInstance("RSA").apply { initialize(2048) }.generateKeyPair()
+        val now = System.currentTimeMillis()
+        val subject = org.bouncycastle.asn1.x500.X500Name("CN=Engine Test Signer")
+        val certBuilder = org.bouncycastle.cert.X509v3CertificateBuilder(
+            subject,
+            java.math.BigInteger.valueOf(now),
+            java.util.Date(now),
+            java.util.Date(now + 365L * 24 * 60 * 60 * 1000),
+            subject,
+            org.bouncycastle.asn1.x509.SubjectPublicKeyInfo.getInstance(keyPair.public.encoded),
+        )
+        val signer = org.bouncycastle.operator.jcajce.JcaContentSignerBuilder("SHA256withRSA").build(keyPair.private)
+        val certificate = org.bouncycastle.cert.jcajce.JcaX509CertificateConverter()
+            .setProvider(org.bouncycastle.jce.provider.BouncyCastleProvider.PROVIDER_NAME)
+            .getCertificate(certBuilder.build(signer))
+        return keyPair to certificate
+    }
+
+    @Test
+    fun signWithDetachedCmsProducesAValidatedSignedCopyAndLeavesTheLiveDocumentUsable() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val engine = PdfBoxEditEngine(context, ioDispatcher = Dispatchers.Unconfined)
+        val sourceFile = fixtureFile()
+        try {
+            engine.open(PdfSource.LocalFile(sourceFile))
+            val (keyPair, certificate) = generateSelfSignedCertificate()
+
+            val signedFile = engine.signWithDetachedCms("Engine Test Signer", keyPair.private, listOf(certificate))
+            assertTrue("signing should produce a validated signed copy", signedFile != null)
+
+            PDDocument.load(signedFile!!).use { reopened ->
+                assertEquals(1, reopened.numberOfPages)
+                assertEquals(1, reopened.signatureDictionaries.size)
+            }
+            signedFile.delete()
+
+            // The live document was signed from a snapshot, not mutated in place — it must
+            // still be usable for further (unrelated) edits afterward.
+            assertTrue("the live document must still accept further edits after signing", engine.rotatePage(0, 90))
+
+            engine.close()
+        } finally {
+            sourceFile.delete()
+        }
+    }
+
     @Test
     fun appendDocumentGrowsThePageCountAndLeavesTheSourceUntouched() = runTest {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()

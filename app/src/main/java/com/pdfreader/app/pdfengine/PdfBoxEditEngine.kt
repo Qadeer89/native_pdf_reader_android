@@ -12,15 +12,31 @@ import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import com.tom_roush.pdfbox.pdmodel.encryption.InvalidPasswordException
 import com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject
 import com.tom_roush.pdfbox.pdmodel.interactive.annotation.PDAnnotationText
+import com.tom_roush.pdfbox.pdmodel.interactive.digitalsignature.PDSignature
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileNotFoundException
+import java.io.FileOutputStream
 import java.io.IOException
+import java.security.PrivateKey
+import java.security.Security
+import java.security.cert.X509Certificate
+import java.util.Calendar
 import java.util.UUID
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import org.bouncycastle.cert.jcajce.JcaX509CertificateHolder
+import org.bouncycastle.cms.CMSProcessableByteArray
+import org.bouncycastle.cms.CMSSignedDataGenerator
+import org.bouncycastle.cms.jcajce.JcaSignerInfoGeneratorBuilder
+import org.bouncycastle.jce.provider.BouncyCastleProvider
+import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
+import org.bouncycastle.operator.jcajce.JcaDigestCalculatorProviderBuilder
+import org.bouncycastle.util.CollectionStore
 
 private const val NOTE_ANNOTATION_SIZE_POINTS = 20f
 
@@ -41,6 +57,11 @@ class PdfBoxEditEngine(
 
     init {
         PDFBoxResourceLoader.init(context.applicationContext)
+        // Explicitly bundled/registered, never Android's own "BC" provider — see ADR-013:
+        // Android's bundled BC crypto-algorithm support was removed in API 31.
+        if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
+            Security.addProvider(BouncyCastleProvider())
+        }
     }
 
     override suspend fun open(source: PdfSource): PdfOpenResult = withContext(ioDispatcher) {
@@ -208,6 +229,69 @@ class PdfBoxEditEngine(
                 false
             }
         }
+    }
+
+    /**
+     * Signs a snapshot of [document] (not [document] itself — see interface doc) using the
+     * exact pattern proven in `PdfSignaturePocTest` (DEC-002's gate POC): `addSignature` +
+     * `saveIncrementalForExternalSigning`, with the CMS bytes built via BouncyCastle.
+     */
+    override suspend fun signWithDetachedCms(
+        signerName: String,
+        privateKey: PrivateKey,
+        certificateChain: List<X509Certificate>,
+    ): File? = withContext(ioDispatcher) {
+        lock.withLock {
+            val doc = document ?: return@withContext null
+            val expectedPageCount = doc.numberOfPages
+            val snapshotBytes = try {
+                ByteArrayOutputStream().also { doc.save(it) }.toByteArray()
+            } catch (_: Exception) {
+                return@withContext null
+            }
+
+            val tempFile = File(context.cacheDir, "pdf-signed-${UUID.randomUUID()}.pdf")
+            try {
+                PDDocument.load(ByteArrayInputStream(snapshotBytes)).use { snapshot ->
+                    val signature = PDSignature().apply {
+                        setFilter(PDSignature.FILTER_ADOBE_PPKLITE)
+                        setSubFilter(PDSignature.SUBFILTER_ADBE_PKCS7_DETACHED)
+                        name = signerName
+                        signDate = Calendar.getInstance()
+                    }
+                    snapshot.addSignature(signature)
+
+                    FileOutputStream(tempFile).use { out ->
+                        val externalSigning = snapshot.saveIncrementalForExternalSigning(out)
+                        val contentToSign = externalSigning.content.readBytes()
+                        externalSigning.setSignature(signCmsDetached(contentToSign, privateKey, certificateChain))
+                    }
+                }
+
+                PDDocument.load(tempFile).use { reopened ->
+                    if (reopened.numberOfPages != expectedPageCount || reopened.signatureDictionaries.isEmpty()) {
+                        tempFile.delete()
+                        return@withContext null
+                    }
+                }
+                tempFile
+            } catch (e: Exception) {
+                tempFile.delete()
+                null
+            }
+        }
+    }
+
+    private fun signCmsDetached(content: ByteArray, privateKey: PrivateKey, certificateChain: List<X509Certificate>): ByteArray {
+        val generator = CMSSignedDataGenerator()
+        val contentSigner = JcaContentSignerBuilder("SHA256withRSA").build(privateKey)
+        val digestCalculatorProvider =
+            JcaDigestCalculatorProviderBuilder().setProvider(BouncyCastleProvider.PROVIDER_NAME).build()
+        generator.addSignerInfoGenerator(
+            JcaSignerInfoGeneratorBuilder(digestCalculatorProvider).build(contentSigner, certificateChain.first()),
+        )
+        generator.addCertificates(CollectionStore(certificateChain.map { JcaX509CertificateHolder(it) }))
+        return generator.generate(CMSProcessableByteArray(content), false).encoded
     }
 
     override suspend fun writeValidatedTempCopy(): File? = withContext(ioDispatcher) {

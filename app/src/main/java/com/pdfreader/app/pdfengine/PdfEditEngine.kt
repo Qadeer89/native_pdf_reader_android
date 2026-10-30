@@ -3,6 +3,8 @@ package com.pdfreader.app.pdfengine
 import com.pdfreader.app.model.PdfOpenResult
 import com.pdfreader.app.model.PdfSource
 import java.io.File
+import java.security.PrivateKey
+import java.security.cert.X509Certificate
 
 /**
  * Adapter boundary for PDF *mutation* (PDF-005 annotations, PDF-006 page operations) —
@@ -72,6 +74,28 @@ interface PdfEditEngine {
      * invalid, or [pngBytes] can't be decoded as an image. PDF-007.
      */
     suspend fun addImageStamp(pageIndex: Int, xFraction: Float, yFraction: Float, widthFraction: Float, pngBytes: ByteArray): Boolean
+
+    /**
+     * Certificate-based (PAdES-B-B, DEC-002 in docs/DECISIONS_AND_OPEN_QUESTIONS.md) digital
+     * signature over a snapshot of the currently-open document's current edits — a detached
+     * CMS/PKCS#7 signature built via BouncyCastle's documented CMS API (no hand-rolled
+     * ASN.1/CMS, per docs/SECURITY_PRIVACY.md §5), covering [certificateChain]'s leaf
+     * certificate. [signerName] is shown as the signature's display name (e.g. in a PDF
+     * viewer's signature panel), not a security property.
+     *
+     * Unlike [addNoteAnnotation]/[rotatePage]/etc., this does **not** mutate the engine's
+     * live in-memory document — PDFBox's incremental-signing save is a one-shot, terminal
+     * operation, so signing is performed against a fresh snapshot instead, leaving the live
+     * document free for further edits. Returns a validated temp file (same contract as
+     * [writeValidatedTempCopy]: written, reopened, and confirmed to have the expected page
+     * count and an actual signature dictionary before being returned) or null on any
+     * failure — no document is left partially signed either way. PDF-008.
+     */
+    suspend fun signWithDetachedCms(
+        signerName: String,
+        privateKey: PrivateKey,
+        certificateChain: List<X509Certificate>,
+    ): File?
 
     /**
      * Per docs/SECURITY_PRIVACY.md §4 ("write outputs to temporary files, validate/reopen,
