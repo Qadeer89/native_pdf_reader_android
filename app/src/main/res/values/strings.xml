@@ -17,4 +17,9 @@
     <string name="reader_properties_pages">Pages: %1$d</string>
     <string name="reader_properties_size">Size (bytes): %1$s</string>
     <string name="reader_properties_dismiss">Close</string>
+    <string name="reader_annotate_start">Annotate</string>
+    <string name="reader_annotate_done">Done annotating</string>
+    <string name="reader_export_action">Export copy</string>
+    <string name="reader_export_saving">Preparing your annotated copy…</string>
+    <string name="reader_export_success">Saved the annotated copy.</string>
 </resources>

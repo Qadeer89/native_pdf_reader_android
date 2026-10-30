@@ -20,16 +20,12 @@ Only dependencies actually added for the Phase 1 vertical slice are listed with 
 | AndroidX Test (core, junit, runner) | 1.6.1 / 1.2.1 / 1.6.2 | Apache-2.0 | Google (AndroidX) | Robolectric test runner glue + instrumented-test scaffolding (`src/androidTest`) | |
 | AndroidX Espresso Core | 3.6.1 | Apache-2.0 | Google (AndroidX) | Instrumented-test scaffolding (`src/androidTest`, not yet executed — no device here) | |
 | AndroidX Room (runtime, ktx, compiler, testing) | 2.6.1 | Apache-2.0 | Google (AndroidX) | Local recent-documents metadata (PDF-004); compiler via kapt | Stores only Uri/name/page-count/timestamp — never PDF bytes, per docs/ARCHITECTURE.md §1 |
+| PDFBox-Android | 2.0.27.0 | Apache-2.0 | [TomRoush/PdfBox-Android](https://github.com/TomRoush/PdfBox-Android) (Android port of Apache PDFBox) | PDF-005/PDF-006 annotation/page-ops engine | **Approved as DEC-001** (`docs/DECISIONS_AND_OPEN_QUESTIONS.md`) after a passing POC. Promoted from `testImplementation` to `implementation` in `app/build.gradle.kts` once approved. **Maintenance caution carried forward**: latest release dated 2023-01-02 (~3.5 years stale as of this writing), 113 open issues / 12 open PRs at time of check — license is clean, freshness is not; revisit if a security advisory surfaces upstream. |
+| BouncyCastle (`bcprov-jdk15to18`, `bcpkix-jdk15to18`, `bcutil-jdk15to18`) | 1.72 | MIT | [bouncycastle.org](https://www.bouncycastle.org/) | **Transitive** dependency pulled in automatically by PDFBox-Android (not declared directly in `app/build.gradle.kts`) | Confirmed via `./gradlew :app:dependencies --configuration debugRuntimeClasspath`. Android Lint flags a `TrustAllX509TrustManager` pattern (empty `checkClientTrusted`/`checkServerTrusted`) inside `bcpkix-jdk15to18-1.72.jar` itself — a known pattern in BouncyCastle's bundled utility classes, not something this app's code invokes, but worth tracking: (1) this is now the de facto crypto provider available for PDF-008 (certificate signing) rather than something to add separately, so re-evaluate "BouncyCastle, not yet evaluated" below as partially overtaken by events; (2) pin and monitor this transitive version for advisories before relying on it for signing, since it did not go through its own dedicated vetting pass. |
 
 Room's annotation processor runs via `org.jetbrains.kotlin.kapt` (bundled with the Kotlin distribution already in use, so no separate version/license entry beyond Kotlin's own). Lint flags that Room also supports KSP, which is faster; migrating is tracked in `IMPLEMENTATION_BACKLOG.md` as non-blocking cleanup.
 
 Android `android.graphics.pdf.PdfRenderer` is a platform API, not a separate dependency — no separate license entry required (Android Open Source Project, Apache-2.0, bundled with the OS).
-
-## Under evaluation (testImplementation only — not shipped in the app)
-
-| Dependency | Version | License | Source | Purpose | Notes |
-|---|---|---|---|---|---|
-| PDFBox-Android | 2.0.27.0 | Apache-2.0 | [TomRoush/PdfBox-Android](https://github.com/TomRoush/PdfBox-Android) (Android port of Apache PDFBox) | Phase 3 engine POC (annotate/save/reopen, merge, encrypted-PDF handling) — see `docs/DECISIONS_AND_OPEN_QUESTIONS.md` DEC-001, `planning/ADR.md` ADR-009 | **Maintenance caution**: latest release dated 2023-01-02 (~3.5 years stale as of this writing), 113 open issues / 12 open PRs at time of check. License is clean; freshness is not. Scoped to `testImplementation` in `app/build.gradle.kts` specifically so it cannot ship until DEC-001 is approved. |
 
 ## Planned, not yet added (re-verify version/license before adding)
 
@@ -42,7 +38,7 @@ Android `android.graphics.pdf.PdfRenderer` is a platform API, not a separate dep
 | iText | Possible PDF manipulation | Gated | AGPLv3/commercial — AGPL incompatible with a closed-source app without disclosing full source; commercial tier is quote-only. Requires legal/business review before any use; not added. See DEC-001. |
 | Firebase Auth / Cloud Storage / Firestore | Cloud identity/sync | Phase 5, gated | Not added; requires cloud provider decision (open question) |
 | Android Keystore APIs | App-managed key protection | Phase 4 | Platform API, no new dependency, but design/review required before use |
-| BouncyCastle (or equivalent vetted crypto provider) | Certificate-based PDF signing (PDF-008), likely paired with whichever PDF engine is selected | Phase 4, gated | Not evaluated yet — explicitly out of scope for this POC pass; docs/SECURITY_PRIVACY.md §5 requires a vetted library, never custom crypto |
+| BouncyCastle — dedicated signing evaluation | Certificate-based PDF signing (PDF-008) | Phase 4, gated | BouncyCastle itself is already present transitively (see the "In use" table above, pulled in by PDFBox-Android) — but only for whatever PDFBox already uses it for internally. Actually *using* it directly for PDF-008 signing still needs its own design/review pass per docs/SECURITY_PRIVACY.md §5 ("no custom crypto... no homemade CMS/PAdES implementation"); not done yet. |
 
 ## Governance notes
 - All versions above are pinned via a Gradle version catalog (`gradle/libs.versions.toml`); no `+` ranges.

@@ -26,12 +26,17 @@ Tracks concrete work items against `docs/IMPLEMENTATION_PLAN.md` phases and `doc
 - [ ] Minor lint cleanup carried forward (not release-blocking): migrate Room's kapt annotation processor to KSP; add `android:dataExtractionRules` (replaces deprecated `allowBackup`); add monochrome adaptive-icon variant; split the manifest's multi-attribute `<data>` tags per lint's `IntentFilterUniqueDataAttributes` suggestion.
 - [ ] Minor test-log noise, not a failure (all tests still pass, 0 failures): `PdfReaderViewModelSmokeTest` intermittently logs a Robolectric `CloseGuard` "resource acquired but never released" warning for a `SQLiteConnection`/other `Closeable`, even after adding `ViewModelStore.clear()` + explicit `RecentDocumentsDatabase.close()` teardown in `@After`. Root cause not yet isolated — worth another look (possibly a Robolectric SQLite shadow quirk with in-memory DBs, or an unrelated Closeable from the PDFBox POC test running in the same JVM) before relying on clean test logs for CI noise budgets.
 
-## Phase 3 — Annotations and page operations (gate: POC done, engine decision pending)
-- [x] **PDF-engine proof of concept** (`docs/ARCHITECTURE.md` §2): PDFBox-Android (Apache-2.0) evaluated and POC-tested — annotate/save/reopen round trip, merge, and encrypted-PDF open/reject all pass (`app/src/test/java/com/pdfreader/app/poc/PdfBoxAndroidEnginePocTest.kt`, 3/3 tests). Recorded as DEC-001 in `docs/DECISIONS_AND_OPEN_QUESTIONS.md` — **Proposed**, not yet **Approved**; this is a licensing/cost decision for the user/business, not something decided unilaterally here. Dependency is `testImplementation`-only until approved (does not ship in the app).
-- [ ] **Still blocked on DEC-001 approval** before any production annotation/page-ops code is written: promoting the dependency to `implementation`, designing the adapter surface, and implementing the features below.
-- [ ] Annotation tools (highlight/underline/strike/pen/eraser/note/textbox/shapes), undo/redo, save/reopen round trip. — PDF-005
-- [ ] Rotate/reorder/extract/delete/insert/merge with preview, progress, cancellation, temp-file-then-commit writes. — PDF-006
-- [ ] Malformed-PDF corpus/fuzz pass against the chosen engine before it processes untrusted user documents (docs/SECURITY_PRIVACY.md §6) — not done in the POC pass, which only used the project's own hand-built fixture.
+## Phase 3 — Annotations and page operations (engine approved, first annotation increment done)
+- [x] **PDF-engine proof of concept** (`docs/ARCHITECTURE.md` §2): PDFBox-Android (Apache-2.0) evaluated and POC-tested — annotate/save/reopen round trip, merge, and encrypted-PDF open/reject all pass (`app/src/test/java/com/pdfreader/app/poc/PdfBoxAndroidEnginePocTest.kt`, 3/3 tests). **Approved as DEC-001** (`docs/DECISIONS_AND_OPEN_QUESTIONS.md`) by the user on 2026-10-30. Dependency promoted from `testImplementation` to `implementation`.
+- [x] `PdfEditEngine`/`PdfBoxEditEngine` adapter: open, add a text-note annotation, count annotations, write-validated-temp-copy. `PdfBoxEditEngineTest` exercises it directly (not just the gate-evidence POC).
+- [x] Minimal annotation UI: "Annotate" mode toggle (disables pinch-zoom while active, by design — see planning/ADR.md ADR-010), tap-to-place a note, Compose `Canvas` overlay markers, "Export copy" action using `ACTION_CREATE_DOCUMENT` (never overwrites the original) with a Saving/Success/Failure banner. — PDF-005, PDF-010
+- [ ] Annotation types beyond a plain text note (highlight/underline/strike/pen/eraser/textbox/shapes). — PDF-005
+- [ ] Undo/redo and annotation deletion — not implemented; currently annotations can only be added, never removed, within a session.
+- [ ] Custom note text entry (currently always "Note" — no text-input dialog yet).
+- [ ] Annotating in continuous-scroll layout (currently single-page-mode only).
+- [ ] Rotate/reorder/extract/delete/insert/merge with preview, progress, cancellation, temp-file-then-commit writes — merge itself proven in the POC; no production UI/adapter methods yet. — PDF-006
+- [ ] Malformed-PDF corpus/fuzz pass against PDFBox-Android before it processes untrusted user documents (docs/SECURITY_PRIVACY.md §6) — not done; the POC and engine tests only used the project's own hand-built fixture.
+- [ ] BouncyCastle is now transitively present (via PDFBox-Android — confirmed via `./gradlew :app:dependencies`, see `planning/DEPENDENCY_LICENSE_INVENTORY.md`) but has not been separately vetted for direct use signing PDFs (PDF-008) — still a distinct, gated piece of work.
 
 ## Phase 4 — Signature workflows (blocked)
 - [ ] Visual signature draw/type/import, placement, private local storage, excluded from sync by default. — PDF-007

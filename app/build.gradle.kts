@@ -73,6 +73,11 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     kapt(libs.androidx.room.compiler)
+    // PDF-005/PDF-006 (annotations/page-ops) engine. docs/ARCHITECTURE.md §2 gate passed via
+    // a POC (app/src/test/.../poc/PdfBoxAndroidEnginePocTest.kt); approved as DEC-001 in
+    // docs/DECISIONS_AND_OPEN_QUESTIONS.md. android.graphics.pdf.PdfRenderer (PlatformPdfRendererEngine)
+    // remains the engine for baseline rendering/navigation (PDF-002) — the two are not merged.
+    implementation(libs.pdfbox.android)
 
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
@@ -80,11 +85,6 @@ dependencies {
     testImplementation(libs.androidx.test.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.androidx.room.testing)
-    // POC-only (not a production dependency): evaluating PDFBox-Android for the gated
-    // PDF-engine decision (docs/ARCHITECTURE.md §2, planning/ADR.md ADR-002/ADR-009).
-    // Deliberately scoped to testImplementation so it never ships in the app until that
-    // decision is actually approved.
-    testImplementation(libs.pdfbox.android)
 
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.junit)

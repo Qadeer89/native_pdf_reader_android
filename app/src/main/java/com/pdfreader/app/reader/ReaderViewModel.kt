@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.pdfreader.app.data.documents.DestinationWriter
 import com.pdfreader.app.data.documents.DocumentMetadata
 import com.pdfreader.app.data.documents.DocumentMetadataResolver
 import com.pdfreader.app.data.recents.RecentDocumentEntity
@@ -12,6 +13,7 @@ import com.pdfreader.app.model.PdfOpenError
 import com.pdfreader.app.model.PdfOpenResult
 import com.pdfreader.app.model.PdfSource
 import com.pdfreader.app.pdfengine.AssetPdfCopier
+import com.pdfreader.app.pdfengine.PdfEditEngine
 import com.pdfreader.app.pdfengine.PdfEngine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -24,13 +26,22 @@ import kotlinx.coroutines.sync.withLock
 
 private const val TARGET_RENDER_WIDTH_PX = 1080
 private const val THUMBNAIL_WIDTH_PX = 160
+private const val DEFAULT_NOTE_TEXT = "Note"
 
 enum class PageLayoutMode { SINGLE, CONTINUOUS }
 
 /**
  * Opens a PDF (bundled fixture by default, or a user-picked SAF/share-intent document
- * per PDF-001) and renders page(s). All PDF work runs via [PdfEngine], whose
- * implementation dispatches off the main thread.
+ * per PDF-001), renders page(s) via [pdfEngine], and — once DEC-001 (PDFBox-Android) was
+ * approved — supports adding simple note annotations via [pdfEditEngine] (PDF-005) and
+ * exporting an annotated copy (PDF-010).
+ *
+ * The two engines are opened in parallel against the *same* [PdfSource] but are otherwise
+ * independent (see the doc comment on [PdfEditEngine]): [pdfEngine] drives every page
+ * render, [pdfEditEngine] only tracks annotations until the user exports a copy. The
+ * rendered bitmap does not reflect in-progress annotations live — [ReaderUiState.Loaded]
+ * carries [ReaderUiState.Loaded.annotationMarkers] (normalized positions for the current
+ * page, this session only) so the UI can draw its own overlay markers instead.
  *
  * Only documents opened via [openDocument] (a real [PdfSource.ContentUri]) are recorded
  * to [RecentDocumentsRepository] (PDF-004) — the bundled fixture opened by [loadFixture]
@@ -38,9 +49,11 @@ enum class PageLayoutMode { SINGLE, CONTINUOUS }
  */
 class ReaderViewModel(
     private val pdfEngine: PdfEngine,
+    private val pdfEditEngine: PdfEditEngine,
     private val assetPdfCopier: AssetPdfCopier,
     private val recentDocumentsRepository: RecentDocumentsRepository,
     private val metadataResolver: DocumentMetadataResolver,
+    private val destinationWriter: DestinationWriter,
     private val fixtureAssetPath: String = "fixtures/sample.pdf",
     private val clock: () -> Long = System::currentTimeMillis,
 ) : ViewModel() {
@@ -51,11 +64,18 @@ class ReaderViewModel(
     private val _layoutMode = MutableStateFlow(PageLayoutMode.SINGLE)
     val layoutMode: StateFlow<PageLayoutMode> = _layoutMode.asStateFlow()
 
+    private val _exportState = MutableStateFlow<ExportState>(ExportState.Idle)
+    val exportState: StateFlow<ExportState> = _exportState.asStateFlow()
+
     val recentDocuments: StateFlow<List<RecentDocumentEntity>> = recentDocumentsRepository.observeAll()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private var pageCount: Int = 0
     private var currentPageIndex: Int = 0
+    private var editEngineAvailable: Boolean = false
+
+    /** Normalized marker positions per page index, this session only (not read back from the file). */
+    private val annotationMarkersByPage = mutableMapOf<Int, MutableList<Pair<Float, Float>>>()
 
     /**
      * Cache of already-rendered page/thumbnail bitmaps for the currently open document,
@@ -129,6 +149,49 @@ class ReaderViewModel(
     }
 
     /**
+     * Adds a note annotation to the current page at ([xFraction], [yFraction]) — both in
+     * `0f..1f` of the displayed page, top-down (matching tap coordinates). No-ops if the
+     * edit engine failed to open (e.g. the document is still mid-load). PDF-005.
+     */
+    fun addNoteAt(xFraction: Float, yFraction: Float, text: String = DEFAULT_NOTE_TEXT) {
+        if (!editEngineAvailable) return
+        val pageIndex = currentPageIndex
+        viewModelScope.launch {
+            val added = pdfEditEngine.addNoteAnnotation(pageIndex, xFraction, yFraction, text)
+            if (added) {
+                annotationMarkersByPage.getOrPut(pageIndex) { mutableListOf() }.add(xFraction to yFraction)
+                val current = _uiState.value
+                if (current is ReaderUiState.Loaded && current.pageIndex == pageIndex) {
+                    _uiState.value = current.copy(annotationMarkers = annotationMarkersByPage[pageIndex].orEmpty())
+                }
+            }
+        }
+    }
+
+    /** Writes a validated temp copy with all annotations and commits it to [destination] (PDF-010). */
+    fun exportAnnotatedCopy(destination: Uri) {
+        viewModelScope.launch {
+            _exportState.value = ExportState.Saving
+            val tempFile = pdfEditEngine.writeValidatedTempCopy()
+            if (tempFile == null) {
+                _exportState.value = ExportState.Failure("Could not prepare the annotated copy.")
+                return@launch
+            }
+            val committed = destinationWriter.writeFileToUri(tempFile, destination)
+            tempFile.delete()
+            _exportState.value = if (committed) {
+                ExportState.Success
+            } else {
+                ExportState.Failure("Could not save to the chosen location.")
+            }
+        }
+    }
+
+    fun acknowledgeExportState() {
+        _exportState.value = ExportState.Idle
+    }
+
+    /**
      * Renders (or returns a cached render of) [pageIndex] at [widthPx]. Used by the
      * thumbnail strip and continuous-scroll layout, which each need page images outside
      * the single "current page" slot that [ReaderUiState.Loaded] carries.
@@ -152,6 +215,9 @@ class ReaderViewModel(
     private suspend fun openSource(source: PdfSource, metadata: DocumentMetadata, recentUriToRecord: String?) {
         _uiState.value = ReaderUiState.Loading
         pageCacheLock.withLock { pageCache.clear() }
+        annotationMarkersByPage.clear()
+        editEngineAvailable = pdfEditEngine.open(source) is PdfOpenResult.Success
+
         when (val result = pdfEngine.open(source)) {
             is PdfOpenResult.Failure -> {
                 pageCount = 0
@@ -184,6 +250,8 @@ class ReaderViewModel(
                 pageCount = pageCount,
                 pageBitmap = bitmap,
                 documentMetadata = currentMetadata,
+                annotationMarkers = annotationMarkersByPage[pageIndex].orEmpty(),
+                canAnnotate = editEngineAvailable,
             )
         } else {
             _uiState.value = ReaderUiState.Error(PdfOpenError.Unexpected("render returned no page"))
@@ -192,7 +260,10 @@ class ReaderViewModel(
 
     override fun onCleared() {
         super.onCleared()
-        viewModelScope.launch { pdfEngine.close() }
+        viewModelScope.launch {
+            pdfEngine.close()
+            pdfEditEngine.close()
+        }
     }
 
     companion object {

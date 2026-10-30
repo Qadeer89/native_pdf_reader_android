@@ -9,8 +9,8 @@
 
 ## Required decisions before production implementation
 - [ ] Minimum supported Android API level and target SDK policy.
-- [ ] PDF engine for annotations/page-ops/forms: see **DEC-001** below — POC complete, awaiting approval (PDFBox-Android vs. a commercial SDK the user would need to engage directly).
-- [ ] Commercial SDK budget and licensing model — only relevant if DEC-001 is decided against PDFBox-Android.
+- [x] PDF engine for annotations/page-ops/forms: **Approved 2026-10-30** — PDFBox-Android. See DEC-001.
+- [ ] Commercial SDK budget and licensing model — no longer relevant unless DEC-001 is revisited (e.g. the maintenance-staleness risk materializes).
 - [ ] Exact digital-signature profile requirements: certificate formats, PAdES level, timestamps, revocation checks, trust roots, hardware-backed/remote signing.
 - [ ] Cloud provider, deployment region, data residency, retention and backup/deletion policy.
 - [ ] Is end-to-end encryption required, or is TLS + provider encryption at rest acceptable for MVP? Do not describe the latter as E2EE.
@@ -23,8 +23,8 @@
 
 ### DEC-001 — PDF engine for annotations/page-operations (Phase 3 gate)
 - Date: 2026-10-30
-- Status: **Proposed** — technical POC complete and evidence-backed below; still needs the user's/business's sign-off, since it carries a licensing/cost decision this agent cannot make on its own (see Assumption policy).
-- Owner: Unassigned — needs product/business owner to approve or redirect.
+- Status: **Approved 2026-10-30** by the user, after reviewing the POC evidence below. PDFBox-Android is cleared to move from `testImplementation` to a real production dependency and back PDF-005/PDF-006.
+- Owner: User (approved directly).
 - Context: `docs/ARCHITECTURE.md` §2 requires a PDF-engine decision, backed by a working proof of concept, before PDF-005 (annotations), PDF-006 (page operations/merge), or PDF-009 (forms) can be implemented. The platform `android.graphics.pdf.PdfRenderer` already in use for PDF-002 (baseline rendering) has **no** API for annotations, page mutation, merging, or text/encryption handling — confirmed by its API surface, not an assumption.
 - Candidates evaluated:
   1. **PDFBox-Android** (`com.tom-roush:pdfbox-android`, a direct Android port of Apache PDFBox) — **Apache License 2.0**. Actionable immediately: no procurement, no trial signup, no legal review beyond standard OSS attribution (already required practice for this project regardless).
@@ -40,7 +40,7 @@
 - Rationale: Of the three candidates, only PDFBox-Android was something this agent could actually integrate, run, and verify in this environment without a business decision (budget, sales contact, legal sign-off) blocking the step. It passed every POC scenario attempted. It is not automatically "selected" — see Assumption policy — but it is now evidence-backed rather than speculative, which is what `docs/ARCHITECTURE.md` §2 asks for.
 - Licensing/cost impact: Apache 2.0 — permissive, compatible with closed-source distribution, standard NOTICE/attribution obligations only (to be captured in a release-time license-notices file, not yet created). Zero direct cost. The commercial alternatives were not actionable for the reason above, not because they were technically rejected.
 - Security/privacy impact: Still needs the fuzz/corpus testing and malformed-PDF handling pass from `docs/SECURITY_PRIVACY.md` §6 before this engine processes untrusted user documents in production; this POC only used the project's own hand-built fixture.
-- Consequences and follow-up tasks if approved: (1) promote the dependency from `testImplementation` to `implementation` and design the `core:pdfengine` adapter extension for annotations/page-ops; (2) run a malformed-PDF corpus against it; (3) evaluate the signing path (BouncyCastle) separately before PDF-008; (4) decide how to respond to the maintenance-staleness risk (vendor a fork, pin and monitor, or revisit commercial options later if a security issue surfaces). If **rejected** in favor of pursuing a commercial quote instead, the user should initiate that vendor contact themselves — this agent will not create vendor accounts, request trial keys, or negotiate pricing on anyone's behalf.
+- Consequences and follow-up tasks (now underway): (1) promote the dependency from `testImplementation` to `implementation` and design the annotation/page-ops adapter (`PdfEditEngine`) — done in the commit that follows this entry; (2) run a malformed-PDF corpus against it — not yet done, tracked in `planning/IMPLEMENTATION_BACKLOG.md`; (3) evaluate the signing path (BouncyCastle) separately before PDF-008 — not started; (4) the maintenance-staleness risk is accepted for now (re-evaluate if a security advisory surfaces in upstream PDFBox that the Android port doesn't pick up).
 
 ### Template for future entries
 ### DEC-XXX — [Decision title]

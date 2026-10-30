@@ -10,10 +10,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import com.pdfreader.app.data.documents.ContentResolverDestinationWriter
 import com.pdfreader.app.data.documents.ContentResolverDocumentMetadataResolver
 import com.pdfreader.app.data.recents.RecentDocumentsDatabase
 import com.pdfreader.app.data.recents.RecentDocumentsRepository
 import com.pdfreader.app.pdfengine.AssetPdfCopier
+import com.pdfreader.app.pdfengine.PdfBoxEditEngine
 import com.pdfreader.app.pdfengine.PlatformPdfRendererEngine
 import com.pdfreader.app.reader.ReaderScreen
 import com.pdfreader.app.reader.ReaderViewModel
@@ -31,11 +33,13 @@ class MainActivity : ComponentActivity() {
                 @Suppress("UNCHECKED_CAST")
                 return ReaderViewModel(
                     pdfEngine = PlatformPdfRendererEngine(context = applicationContext),
+                    pdfEditEngine = PdfBoxEditEngine(context = applicationContext),
                     assetPdfCopier = AssetPdfCopier(applicationContext),
                     recentDocumentsRepository = RecentDocumentsRepository(
                         RecentDocumentsDatabase.getInstance(applicationContext).recentDocumentDao(),
                     ),
                     metadataResolver = ContentResolverDocumentMetadataResolver(applicationContext),
+                    destinationWriter = ContentResolverDestinationWriter(applicationContext),
                 ) as T
             }
         }
@@ -49,6 +53,16 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+    /** PDF-010: user picks where to save the annotated copy; never overwrites the original. */
+    private val createDocumentLauncher =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+            if (uri != null) {
+                readerViewModel.exportAnnotatedCopy(uri)
+            } else {
+                readerViewModel.acknowledgeExportState()
+            }
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -59,6 +73,9 @@ class MainActivity : ComponentActivity() {
                 ReaderScreen(
                     viewModel = readerViewModel,
                     onOpenDocumentClick = { openDocumentLauncher.launch(arrayOf("application/pdf")) },
+                    onExportAnnotatedCopyClick = { suggestedName ->
+                        createDocumentLauncher.launch(suggestedName)
+                    },
                 )
             }
         }

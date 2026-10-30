@@ -13,6 +13,9 @@ sealed class ReaderUiState {
         val pageCount: Int,
         val pageBitmap: Bitmap,
         val documentMetadata: DocumentMetadata? = null,
+        /** Normalized (0f..1f, top-down) positions of note annotations added this session on [pageIndex]. */
+        val annotationMarkers: List<Pair<Float, Float>> = emptyList(),
+        val canAnnotate: Boolean = false,
     ) : ReaderUiState()
 
     data class Error(val error: PdfOpenError) : ReaderUiState()

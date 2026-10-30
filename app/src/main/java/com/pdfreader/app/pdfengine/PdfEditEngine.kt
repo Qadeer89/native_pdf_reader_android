@@ -1,0 +1,50 @@
+package com.pdfreader.app.pdfengine
+
+import com.pdfreader.app.model.PdfOpenResult
+import com.pdfreader.app.model.PdfSource
+import java.io.File
+
+/**
+ * Adapter boundary for PDF *mutation* (PDF-005 annotations, PDF-006 page operations) —
+ * separate from [PdfEngine], which only renders. `android.graphics.pdf.PdfRenderer`
+ * (behind [PdfEngine]) cannot write annotations or move pages at all; this interface is
+ * backed by [PdfBoxEditEngine] (PDFBox-Android), approved as DEC-001 in
+ * docs/DECISIONS_AND_OPEN_QUESTIONS.md after a working proof of concept.
+ *
+ * The two engines are deliberately kept separate rather than merged into one interface:
+ * [PdfEngine] stays the simple, fast rendering path for every page view, while this one
+ * is only opened when the user actually starts annotating. Per docs/ARCHITECTURE.md §2
+ * ("Do not combine multiple PDF engines until a prototype proves that file compatibility
+ * ... survive round trips"), that round-trip compatibility was proven in the POC, but the
+ * two engines still operate on independent file handles to the same source rather than
+ * sharing internal state.
+ */
+interface PdfEditEngine {
+
+    /** Opens [source] for editing; same semantics/result shape as [PdfEngine.open]. */
+    suspend fun open(source: PdfSource): PdfOpenResult
+
+    /**
+     * Adds a simple text-note annotation to [pageIndex] (0-based) at ([xFraction], [yFraction])
+     * — both in `0f..1f` of the page's width/height, so callers don't need to know the
+     * page's point size. Returns false if no document is open or the page index is invalid.
+     */
+    suspend fun addNoteAnnotation(pageIndex: Int, xFraction: Float, yFraction: Float, text: String): Boolean
+
+    /** Number of annotations currently on [pageIndex] (0-based), including ones just added. */
+    suspend fun annotationCount(pageIndex: Int): Int
+
+    /**
+     * Per docs/SECURITY_PRIVACY.md §4 ("write outputs to temporary files, validate/reopen,
+     * then atomically commit"): saves the in-progress edits to a new app-private temporary
+     * file, then reopens *that* file to confirm it is actually valid and has the expected
+     * page count, before returning it. Returns null if saving or validation fails — the
+     * original source is never touched either way. The caller is responsible for copying
+     * the returned temp file to wherever the user actually wants it saved (e.g. a SAF
+     * destination Uri from `ACTION_CREATE_DOCUMENT`) and deleting it afterwards.
+     */
+    suspend fun writeValidatedTempCopy(): File?
+
+    /** Releases any resources held by the currently open document, if any. */
+    suspend fun close()
+}

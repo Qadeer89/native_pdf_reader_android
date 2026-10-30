@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.lifecycle.ViewModelStore
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.pdfreader.app.data.documents.DestinationWriter
 import com.pdfreader.app.data.documents.DocumentMetadata
 import com.pdfreader.app.data.documents.DocumentMetadataResolver
 import com.pdfreader.app.data.recents.RecentDocumentsDatabase
@@ -14,11 +15,16 @@ import com.pdfreader.app.model.PdfDocumentHandle
 import com.pdfreader.app.model.PdfOpenResult
 import com.pdfreader.app.model.PdfSource
 import com.pdfreader.app.pdfengine.AssetPdfCopier
+import com.pdfreader.app.pdfengine.PdfEditEngine
 import com.pdfreader.app.pdfengine.PdfEngine
+import com.pdfreader.app.reader.ExportState
 import com.pdfreader.app.reader.PageLayoutMode
 import com.pdfreader.app.reader.ReaderUiState
 import com.pdfreader.app.reader.ReaderViewModel
+import java.io.File
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -76,17 +82,24 @@ class PdfReaderViewModelSmokeTest {
         openDatabases.clear()
     }
 
-    /** Builds a [ReaderViewModel] with a real (in-memory) recents DB and a fake metadata resolver. */
-    private fun newViewModel(context: Context, engine: PdfEngine): ReaderViewModel {
+    /** Builds a [ReaderViewModel] with a real (in-memory) recents DB and fakes for everything else. */
+    private fun newViewModel(
+        context: Context,
+        engine: PdfEngine,
+        editEngine: PdfEditEngine = FakePdfEditEngine(),
+        destinationWriter: DestinationWriter = FakeDestinationWriter(),
+    ): ReaderViewModel {
         val db = Room.inMemoryDatabaseBuilder(context, RecentDocumentsDatabase::class.java)
             .allowMainThreadQueries()
             .build()
         openDatabases += db
         val viewModel = ReaderViewModel(
             pdfEngine = engine,
+            pdfEditEngine = editEngine,
             assetPdfCopier = AssetPdfCopier(context, ioDispatcher = kotlinx.coroutines.Dispatchers.Unconfined),
             recentDocumentsRepository = RecentDocumentsRepository(db.recentDocumentDao()),
             metadataResolver = FakeDocumentMetadataResolver(),
+            destinationWriter = destinationWriter,
         )
         viewModelStore.put(db.hashCode().toString(), viewModel)
         return viewModel
@@ -259,9 +272,130 @@ class PdfReaderViewModelSmokeTest {
         throw AssertionError("recentDocuments never satisfied the predicate within the timeout")
     }
 
+    @Test
+    fun addNoteAtRecordsAMarkerOnlyWhenTheEditEngineIsAvailable() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val editEngine = FakePdfEditEngine()
+        val viewModel = newViewModel(context, FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT), editEngine = editEngine)
+
+        var loaded = viewModel.uiState.value as ReaderUiState.Loaded
+        assertTrue("edit engine opened successfully, so annotating should be available", loaded.canAnnotate)
+        assertEquals(emptyList<Pair<Float, Float>>(), loaded.annotationMarkers)
+
+        viewModel.addNoteAt(0.25f, 0.5f)
+        loaded = viewModel.uiState.value as ReaderUiState.Loaded
+        assertEquals(listOf(0.25f to 0.5f), loaded.annotationMarkers)
+        assertEquals(1, editEngine.addedAnnotations.size)
+        assertEquals(0, editEngine.addedAnnotations.first().pageIndex)
+    }
+
+    @Test
+    fun addNoteAtIsANoOpWhenTheEditEngineFailedToOpen() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val editEngine = FakePdfEditEngine(openSucceeds = false)
+        val viewModel = newViewModel(context, FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT), editEngine = editEngine)
+
+        val loadedBefore = viewModel.uiState.value as ReaderUiState.Loaded
+        assertTrue("edit engine failed to open, so annotating must be disabled", !loadedBefore.canAnnotate)
+
+        viewModel.addNoteAt(0.25f, 0.5f)
+        val loadedAfter = viewModel.uiState.value as ReaderUiState.Loaded
+        assertEquals(emptyList<Pair<Float, Float>>(), loadedAfter.annotationMarkers)
+        assertEquals(0, editEngine.addedAnnotations.size)
+    }
+
+    @Test
+    fun exportAnnotatedCopySucceedsAndCommitsToTheDestination() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val destinationWriter = FakeDestinationWriter(writeSucceeds = true)
+        val viewModel = newViewModel(
+            context,
+            FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT),
+            destinationWriter = destinationWriter,
+        )
+
+        val destination = Uri.parse("content://com.android.providers.downloads.documents/document/out")
+        viewModel.exportAnnotatedCopy(destination)
+
+        val state = awaitExportState(viewModel) { it !is ExportState.Saving }
+        assertTrue("expected Success but got $state", state is ExportState.Success)
+        assertEquals(destination, destinationWriter.lastDestination)
+
+        viewModel.acknowledgeExportState()
+        assertEquals(ExportState.Idle, viewModel.exportState.value)
+    }
+
+    @Test
+    fun exportAnnotatedCopyReportsFailureWhenTheDestinationWriteFails() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val viewModel = newViewModel(
+            context,
+            FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT),
+            destinationWriter = FakeDestinationWriter(writeSucceeds = false),
+        )
+
+        viewModel.exportAnnotatedCopy(Uri.parse("content://example/document/out"))
+
+        val state = awaitExportState(viewModel) { it !is ExportState.Saving }
+        assertTrue("expected Failure but got $state", state is ExportState.Failure)
+    }
+
+    private suspend fun awaitExportState(
+        viewModel: ReaderViewModel,
+        predicate: (ExportState) -> Boolean,
+    ): ExportState = withTimeout(5_000) {
+        var current = viewModel.exportState.value
+        while (!predicate(current)) {
+            delay(5)
+            current = viewModel.exportState.value
+        }
+        current
+    }
+
     private class FakeDocumentMetadataResolver : DocumentMetadataResolver {
         override suspend fun resolve(uriString: String): DocumentMetadata =
             DocumentMetadata(displayName = "fake-document.pdf", sizeBytes = 1234L)
+    }
+
+    private data class FakeNoteAnnotation(val pageIndex: Int, val xFraction: Float, val yFraction: Float, val text: String)
+
+    /** Stands in for [PdfBoxEditEngine] — no real PDFBox document is involved. */
+    private class FakePdfEditEngine(private val openSucceeds: Boolean = true) : PdfEditEngine {
+        val addedAnnotations = mutableListOf<FakeNoteAnnotation>()
+        private var pageCount = 0
+
+        override suspend fun open(source: PdfSource): PdfOpenResult {
+            if (!openSucceeds) {
+                return PdfOpenResult.Failure(com.pdfreader.app.model.PdfOpenError.Unexpected("fake open failure"))
+            }
+            pageCount = FIXTURE_PAGE_COUNT
+            return PdfOpenResult.Success(PdfDocumentHandle(pageCount = pageCount))
+        }
+
+        override suspend fun addNoteAnnotation(pageIndex: Int, xFraction: Float, yFraction: Float, text: String): Boolean {
+            if (pageIndex < 0 || pageIndex >= pageCount) return false
+            addedAnnotations += FakeNoteAnnotation(pageIndex, xFraction, yFraction, text)
+            return true
+        }
+
+        override suspend fun annotationCount(pageIndex: Int): Int =
+            addedAnnotations.count { it.pageIndex == pageIndex }
+
+        override suspend fun writeValidatedTempCopy(): File = File.createTempFile("fake-edit", ".pdf")
+
+        override suspend fun close() {
+            // no-op fake
+        }
+    }
+
+    /** Stands in for [ContentResolverDestinationWriter]. */
+    private class FakeDestinationWriter(private val writeSucceeds: Boolean = true) : DestinationWriter {
+        var lastDestination: Uri? = null
+
+        override suspend fun writeFileToUri(source: File, destination: Uri): Boolean {
+            lastDestination = destination
+            return writeSucceeds
+        }
     }
 
     /** Stands in for [PlatformPdfRendererEngine] — see class-level doc for why. */
