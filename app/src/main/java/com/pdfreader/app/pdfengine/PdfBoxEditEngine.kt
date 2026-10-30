@@ -5,6 +5,7 @@ import com.pdfreader.app.model.PdfDocumentHandle
 import com.pdfreader.app.model.PdfOpenError
 import com.pdfreader.app.model.PdfOpenResult
 import com.pdfreader.app.model.PdfSource
+import com.pdfreader.app.model.SignatureVerificationResult
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
@@ -23,16 +24,22 @@ import java.security.PrivateKey
 import java.security.Security
 import java.security.cert.X509Certificate
 import java.util.Calendar
+import java.util.Date
 import java.util.UUID
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import org.bouncycastle.cert.X509CertificateHolder
+import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter
 import org.bouncycastle.cert.jcajce.JcaX509CertificateHolder
+import org.bouncycastle.cms.CMSException
 import org.bouncycastle.cms.CMSProcessableByteArray
+import org.bouncycastle.cms.CMSSignedData
 import org.bouncycastle.cms.CMSSignedDataGenerator
 import org.bouncycastle.cms.jcajce.JcaSignerInfoGeneratorBuilder
+import org.bouncycastle.cms.jcajce.JcaSimpleSignerInfoVerifierBuilder
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
 import org.bouncycastle.operator.jcajce.JcaDigestCalculatorProviderBuilder
@@ -55,6 +62,9 @@ class PdfBoxEditEngine(
     private val lock = Mutex()
     private var document: PDDocument? = null
 
+    /** The source [document] was last opened from — kept only to re-read raw bytes for [verifySignatures]. */
+    private var currentSource: PdfSource? = null
+
     init {
         PDFBoxResourceLoader.init(context.applicationContext)
         // Explicitly bundled/registered, never Android's own "BC" provider — see ADR-013:
@@ -70,6 +80,7 @@ class PdfBoxEditEngine(
             try {
                 val opened = loadDocument(source)
                 document = opened
+                currentSource = source
                 PdfOpenResult.Success(PdfDocumentHandle(pageCount = opened.numberOfPages))
             } catch (e: InvalidPasswordException) {
                 PdfOpenResult.Failure(PdfOpenError.PasswordProtected(e.message ?: "locked"))
@@ -294,6 +305,81 @@ class PdfBoxEditEngine(
         return generator.generate(CMSProcessableByteArray(content), false).encoded
     }
 
+    /**
+     * Re-reads [currentSource]'s raw bytes (not a re-save of the parsed [PDDocument], which
+     * PDFBox could reformat and would break byte-range-based signature verification) so
+     * [verifySignatures] can check each signature's actual on-disk coverage.
+     */
+    override suspend fun verifySignatures(): List<SignatureVerificationResult> = withContext(ioDispatcher) {
+        lock.withLock {
+            val doc = document ?: return@withContext emptyList()
+            val source = currentSource ?: return@withContext emptyList()
+            val signatures = try {
+                doc.signatureDictionaries
+            } catch (_: Exception) {
+                return@withContext emptyList()
+            }
+            if (signatures.isEmpty()) return@withContext emptyList()
+
+            val fileBytes = try {
+                readSourceBytes(source)
+            } catch (_: Exception) {
+                return@withContext emptyList()
+            }
+            signatures.map { sig -> verifyOneSignature(sig, fileBytes) }
+        }
+    }
+
+    private fun readSourceBytes(source: PdfSource): ByteArray = when (source) {
+        is PdfSource.LocalFile -> source.file.readBytes()
+        is PdfSource.ContentUri -> context.contentResolver.openInputStream(source.uri)?.use { it.readBytes() }
+            ?: throw FileNotFoundException(source.uri.toString())
+    }
+
+    private fun verifyOneSignature(sig: PDSignature, fileBytes: ByteArray): SignatureVerificationResult {
+        val signerName = sig.name
+        val signDateMillis = sig.signDate?.timeInMillis
+        return try {
+            val signedContent = sig.getSignedContent(fileBytes)
+            val signedData = CMSSignedData(CMSProcessableByteArray(signedContent), sig.contents)
+            val signerInfo = signedData.signerInfos.signers.firstOrNull()
+                ?: return SignatureVerificationResult(signerName, signDateMillis, false, "Unknown", false, false)
+
+            @Suppress("UNCHECKED_CAST")
+            val selector = signerInfo.getSID() as org.bouncycastle.util.Selector<X509CertificateHolder>
+            val matchingCerts = signedData.certificates.getMatches(selector)
+            val certificateHolder = matchingCerts.firstOrNull()
+            val certificate = certificateHolder?.let {
+                JcaX509CertificateConverter().setProvider(BouncyCastleProvider.PROVIDER_NAME).getCertificate(it)
+            }
+
+            val cryptographicallyValid = certificate != null && try {
+                signerInfo.verify(
+                    JcaSimpleSignerInfoVerifierBuilder().setProvider(BouncyCastleProvider.PROVIDER_NAME).build(certificate),
+                )
+            } catch (_: CMSException) {
+                false
+            }
+
+            val now = Date()
+            val certificateCurrentlyValid = certificate != null && !now.before(certificate.notBefore) && !now.after(certificate.notAfter)
+
+            val byteRange = sig.byteRange
+            val coversEntireDocument = byteRange.size == 4 && byteRange[2] + byteRange[3] == fileBytes.size
+
+            SignatureVerificationResult(
+                signerName = signerName,
+                signDateEpochMillis = signDateMillis,
+                cryptographicallyValid = cryptographicallyValid,
+                certificateSubject = certificate?.subjectX500Principal?.name ?: "Unknown",
+                certificateCurrentlyValid = certificateCurrentlyValid,
+                coversEntireDocument = coversEntireDocument,
+            )
+        } catch (_: Exception) {
+            SignatureVerificationResult(signerName, signDateMillis, false, "Unknown", false, false)
+        }
+    }
+
     override suspend fun writeValidatedTempCopy(): File? = withContext(ioDispatcher) {
         lock.withLock {
             val doc = document ?: return@withContext null
@@ -322,5 +408,6 @@ class PdfBoxEditEngine(
     private fun closeLocked() {
         document?.close()
         document = null
+        currentSource = null
     }
 }

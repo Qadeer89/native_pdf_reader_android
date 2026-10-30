@@ -3,6 +3,7 @@ package com.pdfreader.app.reader
 import android.graphics.Bitmap
 import com.pdfreader.app.data.documents.DocumentMetadata
 import com.pdfreader.app.model.PdfOpenError
+import com.pdfreader.app.model.SignatureVerificationResult
 
 /**
  * A visual signature stamped onto a page this session (PDF-007). ([xFraction], [yFraction])
@@ -33,6 +34,12 @@ sealed class ReaderUiState {
         val pageRotationDegrees: Int = 0,
         /** Signatures stamped onto [pageIndex] this session — see [ReaderViewModel.placeSignatureAt]. */
         val signatureStamps: List<SignatureStamp> = emptyList(),
+        /**
+         * Existing digital signatures already in the opened document (PDF-008's "validate"
+         * half), computed once when the document was opened — not staged or session-only
+         * like the fields above. Empty for a document with no signatures.
+         */
+        val signatureVerifications: List<SignatureVerificationResult> = emptyList(),
     ) : ReaderUiState()
 
     data class Error(val error: PdfOpenError) : ReaderUiState()

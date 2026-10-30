@@ -252,6 +252,74 @@ class PdfBoxEditEngineTest {
     }
 
     @Test
+    fun verifySignaturesReportsAValidUntamperedSignatureAndDetectsTampering() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val signingEngine = PdfBoxEditEngine(context, ioDispatcher = Dispatchers.Unconfined)
+        val sourceFile = fixtureFile()
+        var signedFile: File? = null
+        try {
+            signingEngine.open(PdfSource.LocalFile(sourceFile))
+            val (keyPair, certificate) = generateSelfSignedCertificate()
+            signedFile = signingEngine.signWithDetachedCms("Engine Test Signer", keyPair.private, listOf(certificate))
+            assertTrue(signedFile != null)
+            signingEngine.close()
+
+            val verifyingEngine = PdfBoxEditEngine(context, ioDispatcher = Dispatchers.Unconfined)
+            verifyingEngine.open(PdfSource.LocalFile(signedFile!!))
+            val results = verifyingEngine.verifySignatures()
+
+            assertEquals(1, results.size)
+            val result = results.first()
+            assertEquals("Engine Test Signer", result.signerName)
+            assertTrue("an untampered signature must verify cryptographically", result.cryptographicallyValid)
+            assertTrue("the test certificate is valid for a year, so it must still be current", result.certificateCurrentlyValid)
+            assertTrue("this is the only signature, so it must cover the whole file", result.coversEntireDocument)
+            assertEquals("CN=Engine Test Signer", result.certificateSubject)
+            verifyingEngine.close()
+
+            // Flip one byte early in the file — within the signature's first byte-range
+            // segment (always [0, offsetOfContents)), unlike the file's literal midpoint,
+            // which can land inside the /Contents hex-digit placeholder itself (unused
+            // trailing padding there doesn't affect the parsed CMS structure at all).
+            val tamperedFile = File.createTempFile("pdfbox-edit-engine-test-tampered", ".pdf")
+            val bytes = signedFile.readBytes()
+            val tamperIndex = 200
+            bytes[tamperIndex] = (bytes[tamperIndex] + 1).toByte()
+            tamperedFile.writeBytes(bytes)
+            try {
+                val tamperCheckEngine = PdfBoxEditEngine(context, ioDispatcher = Dispatchers.Unconfined)
+                tamperCheckEngine.open(PdfSource.LocalFile(tamperedFile))
+                val tamperedResults = tamperCheckEngine.verifySignatures()
+                assertEquals(1, tamperedResults.size)
+                assertTrue(
+                    "a tampered document's signature must not verify cryptographically",
+                    !tamperedResults.first().cryptographicallyValid,
+                )
+                tamperCheckEngine.close()
+            } finally {
+                tamperedFile.delete()
+            }
+        } finally {
+            signedFile?.delete()
+            sourceFile.delete()
+        }
+    }
+
+    @Test
+    fun verifySignaturesReturnsEmptyForAnUnsignedDocument() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val engine = PdfBoxEditEngine(context, ioDispatcher = Dispatchers.Unconfined)
+        val sourceFile = fixtureFile()
+        try {
+            engine.open(PdfSource.LocalFile(sourceFile))
+            assertEquals(emptyList<Any>(), engine.verifySignatures())
+            engine.close()
+        } finally {
+            sourceFile.delete()
+        }
+    }
+
+    @Test
     fun appendDocumentGrowsThePageCountAndLeavesTheSourceUntouched() = runTest {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val engine = PdfBoxEditEngine(context, ioDispatcher = Dispatchers.Unconfined)

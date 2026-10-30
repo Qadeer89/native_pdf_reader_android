@@ -15,6 +15,7 @@ import com.pdfreader.app.data.signatures.SignatureRepository
 import com.pdfreader.app.model.PdfOpenError
 import com.pdfreader.app.model.PdfOpenResult
 import com.pdfreader.app.model.PdfSource
+import com.pdfreader.app.model.SignatureVerificationResult
 import com.pdfreader.app.pdfengine.AssetPdfCopier
 import com.pdfreader.app.pdfengine.PdfEditEngine
 import com.pdfreader.app.pdfengine.PdfEngine
@@ -129,6 +130,9 @@ class ReaderViewModel(
 
     /** Signatures stamped this session, per page index — see [placeSignatureAt]. */
     private val signatureStampsByPage = mutableMapOf<Int, MutableList<SignatureStamp>>()
+
+    /** Existing digital signatures found in the currently open document — see [openSource]. PDF-008. */
+    private var signatureVerifications: List<SignatureVerificationResult> = emptyList()
 
     /**
      * Cache of already-rendered page/thumbnail bitmaps for the currently open document,
@@ -503,6 +507,9 @@ class ReaderViewModel(
         signatureStampsByPage.clear()
         _pageOpMessage.value = null
         editEngineAvailable = pdfEditEngine.open(source) is PdfOpenResult.Success
+        // Computed once per document open, not staged/session-only like the edit features
+        // above — this reports what's actually already in the file (PDF-008 "validate").
+        signatureVerifications = if (editEngineAvailable) pdfEditEngine.verifySignatures() else emptyList()
 
         when (val result = pdfEngine.open(source)) {
             is PdfOpenResult.Failure -> {
@@ -540,6 +547,7 @@ class ReaderViewModel(
                 canAnnotate = editEngineAvailable,
                 pageRotationDegrees = pageRotationsDegrees.getOrDefault(pageIndex, 0),
                 signatureStamps = signatureStampsByPage[pageIndex].orEmpty(),
+                signatureVerifications = signatureVerifications,
             )
         } else {
             _uiState.value = ReaderUiState.Error(PdfOpenError.Unexpected("render returned no page"))

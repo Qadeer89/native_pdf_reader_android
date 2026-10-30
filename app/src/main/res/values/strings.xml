@@ -55,4 +55,14 @@
     <string name="digital_sign_pkcs12_sign_action">Sign</string>
     <string name="digital_sign_saving">Signing document…</string>
     <string name="digital_sign_success">Saved the signed copy.</string>
+    <string name="reader_signature_status_action">Signatures</string>
+    <string name="digital_sign_verify_title">Signature status</string>
+    <string name="digital_sign_verify_disclaimer">Not checked: certificate trust, revocation, or timestamp — only internal consistency</string>
+    <string name="digital_sign_verify_signer">Signer: %1$s</string>
+    <string name="digital_sign_verify_valid">Cryptographically valid</string>
+    <string name="digital_sign_verify_invalid">NOT valid — content may have changed since signing</string>
+    <string name="digital_sign_verify_cert_valid">Certificate currently valid</string>
+    <string name="digital_sign_verify_cert_invalid">Certificate expired or not yet valid</string>
+    <string name="digital_sign_verify_partial_coverage">Does not cover the whole file — later changes exist</string>
+    <string name="digital_sign_verify_dismiss">Close</string>
 </resources>

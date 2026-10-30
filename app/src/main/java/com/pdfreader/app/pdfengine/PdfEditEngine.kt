@@ -2,6 +2,7 @@ package com.pdfreader.app.pdfengine
 
 import com.pdfreader.app.model.PdfOpenResult
 import com.pdfreader.app.model.PdfSource
+import com.pdfreader.app.model.SignatureVerificationResult
 import java.io.File
 import java.security.PrivateKey
 import java.security.cert.X509Certificate
@@ -96,6 +97,18 @@ interface PdfEditEngine {
         privateKey: PrivateKey,
         certificateChain: List<X509Certificate>,
     ): File?
+
+    /**
+     * The "validate" half of PDF-008: checks every existing digital signature already in
+     * the currently-open document (added by some other tool, or by a prior
+     * [signWithDetachedCms] call once exported and reopened) and reports, per signature,
+     * what [SignatureVerificationResult] documents — cryptographic consistency and
+     * certificate expiry only, explicitly **not** trust-anchor or revocation checking (see
+     * that type's doc). Returns an empty list if the document has no signatures or none is
+     * open; never throws for a malformed/unreadable signature — such a signature is
+     * reported as not cryptographically valid rather than skipped.
+     */
+    suspend fun verifySignatures(): List<SignatureVerificationResult>
 
     /**
      * Per docs/SECURITY_PRIVACY.md §4 ("write outputs to temporary files, validate/reopen,

@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import com.pdfreader.app.R
 import com.pdfreader.app.data.recents.RecentDocumentEntity
 import com.pdfreader.app.data.signatures.SavedSignature
+import com.pdfreader.app.model.SignatureVerificationResult
 import com.pdfreader.app.signing.SigningIdentity
 
 private const val MIN_ZOOM_SCALE = 1f
@@ -97,6 +98,7 @@ fun ReaderScreen(
     var showDrawSignatureDialog by remember { mutableStateOf(false) }
     var showTypeSignatureDialog by remember { mutableStateOf(false) }
     var showCreateIdentityDialog by remember { mutableStateOf(false) }
+    var showSignatureStatusDialog by remember { mutableStateOf(false) }
     var annotateMode by rememberSaveable { mutableStateOf(false) }
     var signatureMode by rememberSaveable { mutableStateOf(false) }
 
@@ -122,6 +124,11 @@ fun ReaderScreen(
                                 stringResource(R.string.reader_mode_single)
                             }
                             Text(modeLabel)
+                        }
+                        if (loaded.signatureVerifications.isNotEmpty()) {
+                            TextButton(onClick = { showSignatureStatusDialog = true }) {
+                                Text(stringResource(R.string.reader_signature_status_action))
+                            }
                         }
                         if (loaded.canAnnotate && layoutMode == PageLayoutMode.SINGLE) {
                             TextButton(
@@ -380,6 +387,12 @@ fun ReaderScreen(
             Pkcs12PasswordDialog(
                 onDismiss = { viewModel.cancelPkcs12Import() },
                 onSubmit = { password -> onPkcs12PasswordSubmittedClick(password, "$baseName-signed.pdf") },
+            )
+        }
+        if (showSignatureStatusDialog && loadedState != null) {
+            SignatureVerificationDialog(
+                results = loadedState.signatureVerifications,
+                onDismiss = { showSignatureStatusDialog = false },
             )
         }
     }
@@ -767,6 +780,56 @@ private fun DigitalSignMenu(
             }
         }
     }
+}
+
+/**
+ * Shows the result of verifying every digital signature already in the opened document
+ * (PDF-008's "validate" half, [ReaderUiState.Loaded.signatureVerifications]). Carries the
+ * same DEC-002-required disclosure as [DigitalSignMenu] — this only reports cryptographic
+ * self-consistency, never "trusted."
+ */
+@Composable
+private fun SignatureVerificationDialog(results: List<SignatureVerificationResult>, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.digital_sign_verify_title)) },
+        text = {
+            androidx.compose.foundation.layout.Column {
+                Text(
+                    stringResource(R.string.digital_sign_verify_disclaimer),
+                    style = MaterialTheme.typography.labelSmall,
+                )
+                results.forEach { result ->
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                    Text(
+                        stringResource(R.string.digital_sign_verify_signer, result.signerName ?: "—"),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        text = if (result.cryptographicallyValid) {
+                            stringResource(R.string.digital_sign_verify_valid)
+                        } else {
+                            stringResource(R.string.digital_sign_verify_invalid)
+                        },
+                        color = if (result.cryptographicallyValid) Color.Unspecified else MaterialTheme.colorScheme.error,
+                    )
+                    Text(
+                        if (result.certificateCurrentlyValid) {
+                            stringResource(R.string.digital_sign_verify_cert_valid)
+                        } else {
+                            stringResource(R.string.digital_sign_verify_cert_invalid)
+                        },
+                    )
+                    if (!result.coversEntireDocument) {
+                        Text(stringResource(R.string.digital_sign_verify_partial_coverage))
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.digital_sign_verify_dismiss)) }
+        },
+    )
 }
 
 @Composable

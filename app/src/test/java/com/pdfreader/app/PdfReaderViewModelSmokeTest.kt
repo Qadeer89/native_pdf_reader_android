@@ -522,6 +522,33 @@ class PdfReaderViewModelSmokeTest {
     }
 
     @Test
+    fun openingASignedDocumentExposesItsSignatureVerificationResults() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val expected = com.pdfreader.app.model.SignatureVerificationResult(
+            signerName = "Jane Doe",
+            signDateEpochMillis = 0L,
+            cryptographicallyValid = true,
+            certificateSubject = "CN=Jane Doe",
+            certificateCurrentlyValid = true,
+            coversEntireDocument = true,
+        )
+        val editEngine = FakePdfEditEngine(signatureVerificationResults = listOf(expected))
+        val viewModel = newViewModel(context, FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT), editEngine = editEngine)
+
+        val loaded = viewModel.uiState.value as ReaderUiState.Loaded
+        assertEquals(listOf(expected), loaded.signatureVerifications)
+    }
+
+    @Test
+    fun openingAnUnsignedDocumentHasNoSignatureVerificationResults() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val viewModel = newViewModel(context, FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT))
+
+        val loaded = viewModel.uiState.value as ReaderUiState.Loaded
+        assertEquals(emptyList<Any>(), loaded.signatureVerifications)
+    }
+
+    @Test
     fun saveSignatureAddsItToSavedSignaturesAndSelectsIt() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val signatureRepository = FakeSignatureRepository()
@@ -667,6 +694,7 @@ class PdfReaderViewModelSmokeTest {
         private val openSucceeds: Boolean = true,
         private val initialPageCount: Int = FIXTURE_PAGE_COUNT,
         private val appendSucceeds: Boolean = true,
+        var signatureVerificationResults: List<com.pdfreader.app.model.SignatureVerificationResult> = emptyList(),
     ) : PdfEditEngine {
         val addedAnnotations = mutableListOf<FakeNoteAnnotation>()
         private var pageCount = 0
@@ -735,6 +763,9 @@ class PdfReaderViewModelSmokeTest {
             signRequests += signerName
             return File.createTempFile("fake-signed", ".pdf")
         }
+
+        override suspend fun verifySignatures(): List<com.pdfreader.app.model.SignatureVerificationResult> =
+            signatureVerificationResults
 
         override suspend fun writeValidatedTempCopy(): File = File.createTempFile("fake-edit", ".pdf")
 
