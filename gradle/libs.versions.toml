@@ -13,7 +13,7 @@ androidxTestCore = "1.6.1"
 androidxTestJunit = "1.2.1"
 androidxTestRunner = "1.6.2"
 espressoCore = "3.6.1"
-room = "2.6.1"
+room = "2.8.5"
 pdfboxAndroid = "2.0.27.0"
 
 [libraries]
