@@ -43,5 +43,5 @@ Android `android.graphics.pdf.PdfRenderer` is a platform API, not a separate dep
 ## Governance notes
 - All versions above are pinned via a Gradle version catalog (`gradle/libs.versions.toml`); no `+` ranges.
 - No dependency in the "Planned" table may be added without updating this inventory with its actual license, source, and maintenance status at the time of addition, per `docs/ARCHITECTURE.md` §5.
-- Dependency vulnerability/license scanning (e.g. OSS Review Toolkit, Gradle `dependencyCheckAnalyze`, or Google's `./gradlew :app:dependencies` + manual license audit) is not yet wired into CI — tracked as a Phase 1 hardening backlog item (see `IMPLEMENTATION_BACKLOG.md`).
+- Dependency vulnerability scanning is now wired into CI via `.github/dependabot.yml` (gradle + github-actions ecosystems, weekly, GitHub-native — no Gradle plugin needed). `.github/workflows/ci.yml` dumps the resolved dependency tree as a build artifact on every run to feed this document's manual license-audit process; a fully automated license-compliance report (e.g. `com.github.jk1.dependency-license-report`) was not added in this pass — see `planning/IMPLEMENTATION_BACKLOG.md` Phase 6.
 - Commercial distribution requires qualified legal counsel review of all licenses before release, per `docs/ARCHITECTURE.md` §5. Not performed in this pass.
