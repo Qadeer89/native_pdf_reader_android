@@ -19,6 +19,11 @@
     <string name="reader_properties_size">Size (bytes): %1$s</string>
     <string name="reader_properties_dismiss">Close</string>
     <string name="reader_annotate_start">Annotate</string>
+    <string name="note_text_title">Note text</string>
+    <string name="note_text_label">Text</string>
+    <string name="note_text_default">Note</string>
+    <string name="note_text_save">Save</string>
+    <string name="note_text_cancel">Cancel</string>
     <string name="reader_annotate_done">Done annotating</string>
     <string name="reader_export_action">Export copy</string>
     <string name="reader_export_saving">Preparing your annotated copy…</string>

@@ -116,6 +116,7 @@ fun ReaderScreen(
     var showAttachmentsDialog by remember { mutableStateOf(false) }
     var annotateMode by rememberSaveable { mutableStateOf(false) }
     var signatureMode by rememberSaveable { mutableStateOf(false) }
+    var pendingNoteTap by remember { mutableStateOf<Pair<Float, Float>?>(null) }
 
     Scaffold(
         topBar = {
@@ -371,7 +372,7 @@ fun ReaderScreen(
                                     showAnnotationMarkers = annotateMode,
                                     onTap = { xFraction, yFraction ->
                                         if (annotateMode) {
-                                            viewModel.addNoteAt(xFraction, yFraction)
+                                            pendingNoteTap = xFraction to yFraction
                                         } else if (signatureMode) {
                                             viewModel.placeSignatureAt(xFraction, yFraction)
                                         }
@@ -457,6 +458,16 @@ fun ReaderScreen(
                 onMove = { targetPageNumber ->
                     viewModel.movePageTo(targetPageNumber)
                     showMovePageDialog = false
+                },
+            )
+        }
+        val noteTap = pendingNoteTap
+        if (noteTap != null) {
+            NoteTextDialog(
+                onDismiss = { pendingNoteTap = null },
+                onSave = { text ->
+                    viewModel.addNoteAt(noteTap.first, noteTap.second, text)
+                    pendingNoteTap = null
                 },
             )
         }
@@ -647,6 +658,34 @@ private fun MovePageDialog(currentPageNumber: Int, pageCount: Int, onDismiss: ()
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.move_page_cancel)) }
+        },
+    )
+}
+
+/** Asks for the text of a note annotation before placing it (PDF-005) — pre-filled with the same default the ViewModel otherwise falls back to when none is given. */
+@Composable
+private fun NoteTextDialog(onDismiss: () -> Unit, onSave: (text: String) -> Unit) {
+    val defaultText = stringResource(R.string.note_text_default)
+    var text by rememberSaveable { mutableStateOf(defaultText) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.note_text_title)) },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                singleLine = true,
+                label = { Text(stringResource(R.string.note_text_label)) },
+            )
+        },
+        confirmButton = {
+            TextButton(enabled = text.isNotBlank(), onClick = { onSave(text) }) {
+                Text(stringResource(R.string.note_text_save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.note_text_cancel)) }
         },
     )
 }
