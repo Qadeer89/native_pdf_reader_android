@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">PDF Reader</string>
+    <string name="action_ok">OK</string>
     <string name="reader_loading">Opening document…</string>
     <string name="reader_page_label">Page %1$d of %2$d</string>
     <string name="reader_open_action">Open</string>
@@ -63,6 +64,7 @@
     <string name="reader_signature_menu_import">Import image…</string>
     <string name="reader_signature_menu_place">Place</string>
     <string name="reader_signature_menu_delete">✕</string>
+    <string name="reader_signature_menu_delete_description">Delete signature</string>
     <string name="signature_draw_title">Draw your signature</string>
     <string name="signature_type_title">Type your signature</string>
     <string name="signature_type_placeholder">Your name</string>
@@ -74,6 +76,7 @@
     <string name="reader_digital_sign_menu_new_identity">Create new signing identity…</string>
     <string name="reader_digital_sign_menu_use_identity">Sign with %1$s</string>
     <string name="reader_digital_sign_menu_delete_identity">✕</string>
+    <string name="reader_digital_sign_menu_delete_identity_description">Delete signing identity %1$s</string>
     <string name="reader_digital_sign_menu_import_pkcs12">Sign with imported certificate (.p12)…</string>
     <string name="digital_sign_create_identity_title">New signing identity</string>
     <string name="digital_sign_create_identity_placeholder">Your name</string>

@@ -52,6 +52,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
@@ -499,12 +500,12 @@ private fun ExportStateBanner(exportState: ExportState, modifier: Modifier = Mod
         is ExportState.Idle -> Unit
         is ExportState.Saving -> Snackbar(modifier = modifier) { Text(stringResource(R.string.reader_export_saving)) }
         is ExportState.Success -> {
-            Snackbar(modifier = modifier, action = { TextButton(onClick = onDismiss) { Text("OK") } }) {
+            Snackbar(modifier = modifier, action = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_ok)) } }) {
                 Text(stringResource(R.string.reader_export_success))
             }
         }
         is ExportState.Failure -> {
-            Snackbar(modifier = modifier, action = { TextButton(onClick = onDismiss) { Text("OK") } }) {
+            Snackbar(modifier = modifier, action = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_ok)) } }) {
                 Text(exportState.reason)
             }
         }
@@ -517,12 +518,12 @@ private fun SignStateBanner(signState: ExportState, modifier: Modifier = Modifie
         is ExportState.Idle -> Unit
         is ExportState.Saving -> Snackbar(modifier = modifier) { Text(stringResource(R.string.digital_sign_saving)) }
         is ExportState.Success -> {
-            Snackbar(modifier = modifier, action = { TextButton(onClick = onDismiss) { Text("OK") } }) {
+            Snackbar(modifier = modifier, action = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_ok)) } }) {
                 Text(stringResource(R.string.digital_sign_success))
             }
         }
         is ExportState.Failure -> {
-            Snackbar(modifier = modifier, action = { TextButton(onClick = onDismiss) { Text("OK") } }) {
+            Snackbar(modifier = modifier, action = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_ok)) } }) {
                 Text(signState.reason)
             }
         }
@@ -535,12 +536,12 @@ private fun ExtractStateBanner(extractState: ExportState, modifier: Modifier = M
         is ExportState.Idle -> Unit
         is ExportState.Saving -> Snackbar(modifier = modifier) { Text(stringResource(R.string.extract_saving)) }
         is ExportState.Success -> {
-            Snackbar(modifier = modifier, action = { TextButton(onClick = onDismiss) { Text("OK") } }) {
+            Snackbar(modifier = modifier, action = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_ok)) } }) {
                 Text(stringResource(R.string.extract_success))
             }
         }
         is ExportState.Failure -> {
-            Snackbar(modifier = modifier, action = { TextButton(onClick = onDismiss) { Text("OK") } }) {
+            Snackbar(modifier = modifier, action = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_ok)) } }) {
                 Text(extractState.reason)
             }
         }
@@ -558,7 +559,7 @@ private fun PrintStateBanner(printState: PrintState, modifier: Modifier = Modifi
         is PrintState.Idle, is PrintState.Ready -> Unit
         is PrintState.Preparing -> Snackbar(modifier = modifier) { Text(stringResource(R.string.reader_print_preparing)) }
         is PrintState.Failure -> {
-            Snackbar(modifier = modifier, action = { TextButton(onClick = onDismiss) { Text("OK") } }) {
+            Snackbar(modifier = modifier, action = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_ok)) } }) {
                 Text(printState.reason)
             }
         }
@@ -571,12 +572,12 @@ private fun AttachmentExtractStateBanner(extractState: ExportState, modifier: Mo
         is ExportState.Idle -> Unit
         is ExportState.Saving -> Snackbar(modifier = modifier) { Text(stringResource(R.string.attachment_extract_saving)) }
         is ExportState.Success -> {
-            Snackbar(modifier = modifier, action = { TextButton(onClick = onDismiss) { Text("OK") } }) {
+            Snackbar(modifier = modifier, action = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_ok)) } }) {
                 Text(stringResource(R.string.attachment_extract_success))
             }
         }
         is ExportState.Failure -> {
-            Snackbar(modifier = modifier, action = { TextButton(onClick = onDismiss) { Text("OK") } }) {
+            Snackbar(modifier = modifier, action = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_ok)) } }) {
                 Text(extractState.reason)
             }
         }
@@ -586,7 +587,7 @@ private fun AttachmentExtractStateBanner(extractState: ExportState, modifier: Mo
 @Composable
 private fun PageOpMessageBanner(message: String?, onDismiss: () -> Unit) {
     if (message != null) {
-        Snackbar(action = { TextButton(onClick = onDismiss) { Text("OK") } }) {
+        Snackbar(action = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_ok)) } }) {
             Text(message)
         }
     }
@@ -999,6 +1000,7 @@ private fun SignatureMenu(
     onSelect: (id: String) -> Unit,
     onDelete: (id: String) -> Unit,
 ) {
+    val deleteSignatureDescription = stringResource(R.string.reader_signature_menu_delete_description)
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         // docs/SECURITY_PRIVACY.md §5: "Clearly label visual signatures as appearances only."
         DropdownMenuItem(
@@ -1031,7 +1033,12 @@ private fun SignatureMenu(
                     },
                     onClick = { onSelect(signature.id) },
                     trailingIcon = {
-                        TextButton(onClick = { onDelete(signature.id) }) {
+                        TextButton(
+                            onClick = { onDelete(signature.id) },
+                            modifier = Modifier.clearAndSetSemantics {
+                                contentDescription = deleteSignatureDescription
+                            },
+                        ) {
                             Text(stringResource(R.string.reader_signature_menu_delete))
                         }
                     },
@@ -1077,11 +1084,20 @@ private fun DigitalSignMenu(
         if (signingIdentities.isNotEmpty()) {
             HorizontalDivider()
             signingIdentities.forEach { identity ->
+                val deleteIdentityDescription = stringResource(
+                    R.string.reader_digital_sign_menu_delete_identity_description,
+                    identity.displayName,
+                )
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.reader_digital_sign_menu_use_identity, identity.displayName)) },
                     onClick = { onSignWithIdentity(identity.alias) },
                     trailingIcon = {
-                        TextButton(onClick = { onDeleteIdentity(identity.alias) }) {
+                        TextButton(
+                            onClick = { onDeleteIdentity(identity.alias) },
+                            modifier = Modifier.clearAndSetSemantics {
+                                contentDescription = deleteIdentityDescription
+                            },
+                        ) {
                             Text(stringResource(R.string.reader_digital_sign_menu_delete_identity))
                         }
                     },
