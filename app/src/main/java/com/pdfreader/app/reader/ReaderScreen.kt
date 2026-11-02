@@ -80,16 +80,20 @@ fun ReaderScreen(
     onSignWithIdentityClick: (alias: String, suggestedName: String) -> Unit,
     onImportPkcs12Click: () -> Unit,
     onPkcs12PasswordSubmittedClick: (password: CharArray, suggestedName: String) -> Unit,
+    onInsertDocumentClick: () -> Unit,
+    onExtractCurrentPageClick: (suggestedName: String) -> Unit,
 ) {
     val state by viewModel.uiState.collectAsState()
     val layoutMode by viewModel.layoutMode.collectAsState()
     val exportState by viewModel.exportState.collectAsState()
     val signState by viewModel.signState.collectAsState()
+    val extractState by viewModel.extractState.collectAsState()
     val pageOpMessage by viewModel.pageOpMessage.collectAsState()
     val recentDocuments by viewModel.recentDocuments.collectAsState()
     val savedSignatures by viewModel.savedSignatures.collectAsState()
     val signingIdentities by viewModel.signingIdentities.collectAsState()
     val pkcs12AwaitingPassword by viewModel.pkcs12AwaitingPassword.collectAsState()
+    val insertAwaitingPosition by viewModel.insertAwaitingPosition.collectAsState()
     var showRecentMenu by remember { mutableStateOf(false) }
     var showPageMenu by remember { mutableStateOf(false) }
     var showSignMenu by remember { mutableStateOf(false) }
@@ -178,6 +182,17 @@ fun ReaderScreen(
                                     onMove = {
                                         showPageMenu = false
                                         showMovePageDialog = true
+                                    },
+                                    onInsert = {
+                                        showPageMenu = false
+                                        onInsertDocumentClick()
+                                    },
+                                    onExtract = {
+                                        showPageMenu = false
+                                        val baseName = loaded.documentMetadata?.displayName
+                                            ?.removeSuffix(".pdf")
+                                            ?: "document"
+                                        onExtractCurrentPageClick("$baseName-page${loaded.pageIndex + 1}.pdf")
                                     },
                                 )
                             }
@@ -350,6 +365,7 @@ fun ReaderScreen(
                 PageOpMessageBanner(message = pageOpMessage, onDismiss = viewModel::acknowledgePageOpMessage)
                 ExportStateBanner(exportState = exportState, onDismiss = viewModel::acknowledgeExportState)
                 SignStateBanner(signState = signState, onDismiss = viewModel::acknowledgeSignState)
+                ExtractStateBanner(extractState = extractState, onDismiss = viewModel::acknowledgeExtractState)
             }
         }
 
@@ -411,6 +427,13 @@ fun ReaderScreen(
                 },
             )
         }
+        if (insertAwaitingPosition && loadedState != null) {
+            InsertPositionDialog(
+                pageCount = loadedState.pageCount,
+                onDismiss = { viewModel.cancelInsert() },
+                onInsert = { targetPageNumber -> viewModel.insertDocumentAt(targetPageNumber) },
+            )
+        }
     }
 }
 
@@ -451,6 +474,24 @@ private fun SignStateBanner(signState: ExportState, modifier: Modifier = Modifie
 }
 
 @Composable
+private fun ExtractStateBanner(extractState: ExportState, modifier: Modifier = Modifier, onDismiss: () -> Unit) {
+    when (extractState) {
+        is ExportState.Idle -> Unit
+        is ExportState.Saving -> Snackbar(modifier = modifier) { Text(stringResource(R.string.extract_saving)) }
+        is ExportState.Success -> {
+            Snackbar(modifier = modifier, action = { TextButton(onClick = onDismiss) { Text("OK") } }) {
+                Text(stringResource(R.string.extract_success))
+            }
+        }
+        is ExportState.Failure -> {
+            Snackbar(modifier = modifier, action = { TextButton(onClick = onDismiss) { Text("OK") } }) {
+                Text(extractState.reason)
+            }
+        }
+    }
+}
+
+@Composable
 private fun PageOpMessageBanner(message: String?, onDismiss: () -> Unit) {
     if (message != null) {
         Snackbar(action = { TextButton(onClick = onDismiss) { Text("OK") } }) {
@@ -468,12 +509,16 @@ private fun PageOpsMenu(
     onDelete: () -> Unit,
     onMerge: () -> Unit,
     onMove: () -> Unit,
+    onInsert: () -> Unit,
+    onExtract: () -> Unit,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         DropdownMenuItem(text = { Text(stringResource(R.string.reader_page_rotate)) }, onClick = onRotate)
         DropdownMenuItem(text = { Text(stringResource(R.string.reader_page_delete)) }, onClick = onDelete)
         DropdownMenuItem(text = { Text(stringResource(R.string.reader_page_move)) }, onClick = onMove)
         DropdownMenuItem(text = { Text(stringResource(R.string.reader_page_merge)) }, onClick = onMerge)
+        DropdownMenuItem(text = { Text(stringResource(R.string.reader_page_insert)) }, onClick = onInsert)
+        DropdownMenuItem(text = { Text(stringResource(R.string.reader_page_extract)) }, onClick = onExtract)
     }
 }
 
@@ -509,6 +554,40 @@ private fun MovePageDialog(currentPageNumber: Int, pageCount: Int, onDismiss: ()
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.move_page_cancel)) }
+        },
+    )
+}
+
+/**
+ * Asks where to insert a just-picked document's pages (PDF-006) — a 1-based position from
+ * 1 to `pageCount + 1` inclusive (the latter means "after the last page", same range
+ * [ReaderViewModel.insertDocumentAt] accepts).
+ */
+@Composable
+private fun InsertPositionDialog(pageCount: Int, onDismiss: () -> Unit, onInsert: (targetPageNumber: Int) -> Unit) {
+    var targetText by rememberSaveable { mutableStateOf((pageCount + 1).toString()) }
+    val target = targetText.toIntOrNull()
+    val targetIsValid = target != null && target in 1..(pageCount + 1)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.insert_position_title)) },
+        text = {
+            OutlinedTextField(
+                value = targetText,
+                onValueChange = { targetText = it.filter(Char::isDigit) },
+                singleLine = true,
+                label = { Text(stringResource(R.string.insert_position_label, pageCount + 1)) },
+                isError = !targetIsValid,
+            )
+        },
+        confirmButton = {
+            TextButton(enabled = targetIsValid, onClick = { onInsert(target!!) }) {
+                Text(stringResource(R.string.insert_position_confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.insert_position_cancel)) }
         },
     )
 }

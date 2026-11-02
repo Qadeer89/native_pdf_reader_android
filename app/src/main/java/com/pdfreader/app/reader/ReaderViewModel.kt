@@ -118,6 +118,15 @@ class ReaderViewModel(
     /** Decrypted only transiently, in memory, for a single sign operation — never persisted. */
     private var pendingPkcs12Bytes: ByteArray? = null
 
+    private val _extractState = MutableStateFlow<ExportState>(ExportState.Idle)
+    val extractState: StateFlow<ExportState> = _extractState.asStateFlow()
+
+    /** True once a PDF has been picked to insert, awaiting its target position (PDF-006). */
+    private val _insertAwaitingPosition = MutableStateFlow(false)
+    val insertAwaitingPosition: StateFlow<Boolean> = _insertAwaitingPosition.asStateFlow()
+
+    private var pendingInsertUri: Uri? = null
+
     private var pageCount: Int = 0
     private var currentPageIndex: Int = 0
     private var editEngineAvailable: Boolean = false
@@ -335,6 +344,72 @@ class ReaderViewModel(
                 "Could not add pages from that document."
             }
         }
+    }
+
+    /** Remembers [uri] (a picked PDF to insert) and signals [insertAwaitingPosition] so the UI can ask where. PDF-006. */
+    fun pickedDocumentToInsert(uri: Uri) {
+        pendingInsertUri = uri
+        _insertAwaitingPosition.value = true
+    }
+
+    /** Cancels an in-progress insert, forgetting the picked document. PDF-006. */
+    fun cancelInsert() {
+        pendingInsertUri = null
+        _insertAwaitingPosition.value = false
+    }
+
+    /**
+     * Inserts the previously-picked document's pages at [atPageNumber1Based] (1-based; the
+     * UI works in 1-based page numbers, same as [movePageTo]). Staged like [mergeDocument] —
+     * [pdfEngine] keeps rendering by the original page indices, so nothing visually shifts
+     * until the user exports a copy.
+     */
+    fun insertDocumentAt(atPageNumber1Based: Int) {
+        val uri = pendingInsertUri
+        _insertAwaitingPosition.value = false
+        pendingInsertUri = null
+        if (!editEngineAvailable || uri == null) return
+        val atIndex = atPageNumber1Based - 1
+        if (atIndex < 0 || atIndex > pageCount) return
+        viewModelScope.launch {
+            _pageOpMessage.value = if (pdfEditEngine.insertDocument(PdfSource.ContentUri(uri), atIndex)) {
+                "Pages inserted. Export a copy to save this change."
+            } else {
+                "Could not insert pages from that document."
+            }
+        }
+    }
+
+    /**
+     * Extracts the current page into a brand-new PDF and commits it to [destination] — a
+     * copy, not a move: the current page stays in the open document (pair with
+     * [deleteCurrentPage] to actually remove it). Unlike the other page operations, this
+     * never mutates the open document, so there is nothing to export later — the extracted
+     * file is written out immediately, same "write temp, validate, commit" shape as
+     * [exportAnnotatedCopy]/[finishSigning]. PDF-006.
+     */
+    fun extractCurrentPageTo(destination: Uri) {
+        if (!editEngineAvailable) return
+        val pageIndex = currentPageIndex
+        viewModelScope.launch {
+            _extractState.value = ExportState.Saving
+            val extracted = pdfEditEngine.extractPages(listOf(pageIndex))
+            if (extracted == null) {
+                _extractState.value = ExportState.Failure("Could not extract this page.")
+                return@launch
+            }
+            val committed = destinationWriter.writeFileToUri(extracted, destination)
+            extracted.delete()
+            _extractState.value = if (committed) {
+                ExportState.Success
+            } else {
+                ExportState.Failure("Could not save the extracted page.")
+            }
+        }
+    }
+
+    fun acknowledgeExtractState() {
+        _extractState.value = ExportState.Idle
     }
 
     /** Marks [id] as the signature [placeSignatureAt] will stamp next (PDF-007). */

@@ -89,6 +89,24 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+    /** PDF-006: user picks a second PDF whose pages get inserted at a chosen position. */
+    private val insertDocumentLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) {
+                readerViewModel.pickedDocumentToInsert(uri)
+            }
+        }
+
+    /** PDF-006: user picks where to save the current page extracted as its own PDF. */
+    private val extractDestinationLauncher =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+            if (uri != null) {
+                readerViewModel.extractCurrentPageTo(uri)
+            } else {
+                readerViewModel.acknowledgeExtractState()
+            }
+        }
+
     /**
      * PDF-008: which signing operation [signDestinationLauncher]'s result should finish —
      * set right before launching it, since the destination picker is the last step of
@@ -140,6 +158,8 @@ class MainActivity : ComponentActivity() {
                     },
                     onMergeDocumentClick = { mergeDocumentLauncher.launch(arrayOf("application/pdf")) },
                     onImportSignatureImageClick = { importSignatureImageLauncher.launch("image/*") },
+                    onInsertDocumentClick = { insertDocumentLauncher.launch(arrayOf("application/pdf")) },
+                    onExtractCurrentPageClick = { suggestedName -> extractDestinationLauncher.launch(suggestedName) },
                     onSignWithIdentityClick = { alias, suggestedName ->
                         pendingSignAction = PendingSignAction.WithIdentity(alias)
                         signDestinationLauncher.launch(suggestedName)

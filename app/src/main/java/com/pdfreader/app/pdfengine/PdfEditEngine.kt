@@ -66,6 +66,27 @@ interface PdfEditEngine {
     suspend fun appendDocument(source: PdfSource): Boolean
 
     /**
+     * Inserts every page of [source] into the currently open document starting at
+     * [atIndex] (0-based; `0` inserts before the current first page, `pageCount()`
+     * inserts after the current last page — same range as [appendDocument], which is
+     * equivalent to `insertDocument(source, pageCount())`). [source] is opened and closed
+     * independently, same as [appendDocument]. Returns false (and leaves the open document
+     * unchanged) if [source] can't be opened/read or [atIndex] is out of range. PDF-006.
+     */
+    suspend fun insertDocument(source: PdfSource, atIndex: Int): Boolean
+
+    /**
+     * Extracts [pageIndices] (0-based, order preserved as given — may repeat an index) into
+     * a brand-new, separate document and returns a validated temp file for it — same
+     * contract as [writeValidatedTempCopy]: written, reopened, and confirmed to have exactly
+     * [pageIndices].size pages before being returned. Does **not** modify the currently open
+     * document (the pages are copied, not moved) — a separate [deletePage] call is how the
+     * user would also remove them from the original. Returns null if [pageIndices] is empty,
+     * contains an out-of-range index, or extraction/validation fails. PDF-006.
+     */
+    suspend fun extractPages(pageIndices: List<Int>): File?
+
+    /**
      * Stamps a PNG image (e.g. a saved visual signature, [pngBytes]) onto [pageIndex]
      * (0-based). ([xFraction], [yFraction]) is the top-left corner of the stamp, in
      * `0f..1f` of the page, top-down (matching tap coordinates, same convention as

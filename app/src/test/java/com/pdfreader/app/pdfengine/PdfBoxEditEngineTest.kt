@@ -339,4 +339,60 @@ class PdfBoxEditEngineTest {
             sourceFile.delete()
         }
     }
+
+    @Test
+    fun insertDocumentGrowsPageCountAtTheGivenPosition() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val engine = PdfBoxEditEngine(context, ioDispatcher = Dispatchers.Unconfined)
+        val sourceFile = fixtureFile()
+        try {
+            engine.open(PdfSource.LocalFile(sourceFile))
+            assertEquals(1, engine.pageCount())
+
+            assertTrue(engine.insertDocument(PdfSource.LocalFile(sourceFile), atIndex = 0))
+            assertEquals(2, engine.pageCount())
+
+            // Out-of-range position must not crash and must report failure.
+            assertTrue(!engine.insertDocument(PdfSource.LocalFile(sourceFile), atIndex = 99))
+            assertTrue(!engine.insertDocument(PdfSource.LocalFile(sourceFile), atIndex = -1))
+
+            val tempCopy = engine.writeValidatedTempCopy()
+            assertTrue(tempCopy != null)
+            PDDocument.load(tempCopy!!).use { reopened -> assertEquals(2, reopened.numberOfPages) }
+            tempCopy.delete()
+
+            // The source fixture file itself must be unchanged (never opened for writing).
+            PDDocument.load(sourceFile).use { original -> assertEquals(1, original.numberOfPages) }
+
+            engine.close()
+        } finally {
+            sourceFile.delete()
+        }
+    }
+
+    @Test
+    fun extractPagesCreatesASeparateDocumentWithoutModifyingTheOriginal() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val engine = PdfBoxEditEngine(context, ioDispatcher = Dispatchers.Unconfined)
+        val sourceFile = fixtureFile()
+        try {
+            openThreePageWorkingCopy(engine, sourceFile)
+
+            val extracted = engine.extractPages(listOf(1))
+            assertTrue("extraction should produce a validated copy", extracted != null)
+            PDDocument.load(extracted!!).use { reopened -> assertEquals(1, reopened.numberOfPages) }
+            extracted.delete()
+
+            // The original, currently-open document must be unaffected — extraction copies, never moves.
+            assertEquals(3, engine.pageCount())
+
+            // An empty selection or an out-of-range index must not crash and must report failure.
+            assertTrue(engine.extractPages(emptyList()) == null)
+            assertTrue(engine.extractPages(listOf(99)) == null)
+
+            engine.close()
+        } finally {
+            sourceFile.delete()
+        }
+    }
 }

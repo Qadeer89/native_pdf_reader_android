@@ -243,6 +243,68 @@ class PdfBoxEditEngine(
     }
 
     /**
+     * Imports [source]'s pages (which always appends them at the end, same as
+     * [appendDocument] — `PDPageTree` has no "insert at index" primitive, only `add`/
+     * `insertBefore`/`insertAfter`), then rebuilds the page order with the newly-imported
+     * pages spliced into position [atIndex] — the exact same "convert to list, splice,
+     * remove-and-re-add everything" technique [movePage] uses, for the same reason: simpler
+     * to get right than chaining `insertBefore`/`insertAfter` against a tree whose indices
+     * shift as pages are added.
+     */
+    override suspend fun insertDocument(source: PdfSource, atIndex: Int): Boolean = withContext(ioDispatcher) {
+        lock.withLock {
+            val doc = document ?: return@withContext false
+            if (atIndex < 0 || atIndex > doc.numberOfPages) return@withContext false
+            try {
+                val pages = doc.pages
+                val originalOrder = pages.toList()
+
+                val importedPages = loadDocument(source).use { sourceDoc ->
+                    sourceDoc.pages.map { page -> doc.importPage(page) }
+                }
+
+                val newOrder = originalOrder.toMutableList()
+                newOrder.addAll(atIndex, importedPages)
+
+                pages.toList().forEach { pages.remove(it) }
+                newOrder.forEach { pages.add(it) }
+                true
+            } catch (_: Exception) {
+                false
+            }
+        }
+    }
+
+    /**
+     * Copies [pageIndices] (read-only — [doc] is never modified) into a brand-new
+     * [PDDocument], validating the result the same way [writeValidatedTempCopy] does.
+     */
+    override suspend fun extractPages(pageIndices: List<Int>): File? = withContext(ioDispatcher) {
+        lock.withLock {
+            val doc = document ?: return@withContext null
+            if (pageIndices.isEmpty() || pageIndices.any { it < 0 || it >= doc.numberOfPages }) return@withContext null
+
+            val tempFile = File(context.cacheDir, "pdf-extracted-${UUID.randomUUID()}.pdf")
+            try {
+                PDDocument().use { extracted ->
+                    pageIndices.forEach { index -> extracted.importPage(doc.getPage(index)) }
+                    extracted.save(tempFile)
+                }
+                PDDocument.load(tempFile).use { reopened ->
+                    if (reopened.numberOfPages != pageIndices.size) {
+                        tempFile.delete()
+                        return@withContext null
+                    }
+                }
+                tempFile
+            } catch (e: Exception) {
+                tempFile.delete()
+                null
+            }
+        }
+    }
+
+    /**
      * Signs a snapshot of [document] (not [document] itself — see interface doc) using the
      * exact pattern proven in `PdfSignaturePocTest` (DEC-002's gate POC): `addSignature` +
      * `saveIncrementalForExternalSigning`, with the CMS bytes built via BouncyCastle.

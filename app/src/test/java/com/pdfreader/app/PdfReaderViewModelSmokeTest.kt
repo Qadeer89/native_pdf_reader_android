@@ -442,6 +442,75 @@ class PdfReaderViewModelSmokeTest {
     }
 
     @Test
+    fun insertDocumentAtAwaitsPositionThenInsertsOnSubmit() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val editEngine = FakePdfEditEngine(initialPageCount = MULTI_PAGE_COUNT)
+        val viewModel = newViewModel(context, FakePdfEngine(pageCount = MULTI_PAGE_COUNT), editEngine = editEngine)
+        assertEquals(false, viewModel.insertAwaitingPosition.value)
+
+        viewModel.pickedDocumentToInsert(Uri.parse("content://example/document/to-insert"))
+        assertEquals(true, viewModel.insertAwaitingPosition.value)
+
+        viewModel.insertDocumentAt(2)
+        assertEquals("position prompt should be dismissed once submitted", false, viewModel.insertAwaitingPosition.value)
+        assertTrue(viewModel.pageOpMessage.value?.contains("inserted", ignoreCase = true) == true)
+    }
+
+    @Test
+    fun insertDocumentAtIsANoOpWhenNoDocumentWasPicked() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val viewModel = newViewModel(context, FakePdfEngine(pageCount = MULTI_PAGE_COUNT))
+
+        viewModel.insertDocumentAt(1)
+
+        assertEquals(null, viewModel.pageOpMessage.value)
+    }
+
+    @Test
+    fun cancelInsertDismissesThePositionPrompt() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val viewModel = newViewModel(context, FakePdfEngine(pageCount = MULTI_PAGE_COUNT))
+        viewModel.pickedDocumentToInsert(Uri.parse("content://example/document/to-insert"))
+        assertEquals(true, viewModel.insertAwaitingPosition.value)
+
+        viewModel.cancelInsert()
+
+        assertEquals(false, viewModel.insertAwaitingPosition.value)
+    }
+
+    @Test
+    fun extractCurrentPageToSucceedsAndCommitsToTheDestination() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val destinationWriter = FakeDestinationWriter(writeSucceeds = true)
+        val viewModel = newViewModel(
+            context,
+            FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT),
+            destinationWriter = destinationWriter,
+        )
+
+        val destination = Uri.parse("content://example/document/extracted")
+        viewModel.extractCurrentPageTo(destination)
+
+        val state = awaitExportState(viewModel, viewModel::extractState) { it !is ExportState.Saving }
+        assertTrue("expected Success but got $state", state is ExportState.Success)
+        assertEquals(destination, destinationWriter.lastDestination)
+    }
+
+    @Test
+    fun extractCurrentPageToReportsFailureWhenTheEngineRejectsIt() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        // A zero-page edit-engine document makes any page index (including the current one,
+        // 0) out of range, so FakePdfEditEngine.extractPages reports failure.
+        val editEngine = FakePdfEditEngine(initialPageCount = 0)
+        val viewModel = newViewModel(context, FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT), editEngine = editEngine)
+
+        viewModel.extractCurrentPageTo(Uri.parse("content://example/document/extracted"))
+
+        val state = awaitExportState(viewModel, viewModel::extractState) { it !is ExportState.Saving }
+        assertTrue("expected Failure but got $state", state is ExportState.Failure)
+    }
+
+    @Test
     fun createSigningIdentityAddsItToSigningIdentities() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val viewModel = newViewModel(context, FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT))
@@ -774,6 +843,21 @@ class PdfReaderViewModelSmokeTest {
             if (!appendSucceeds) return false
             pageCount += FIXTURE_PAGE_COUNT
             return true
+        }
+
+        var insertSucceeds: Boolean = true
+
+        override suspend fun insertDocument(source: PdfSource, atIndex: Int): Boolean {
+            if (!insertSucceeds || atIndex < 0 || atIndex > pageCount) return false
+            pageCount += FIXTURE_PAGE_COUNT
+            return true
+        }
+
+        var extractedFile: File? = null
+
+        override suspend fun extractPages(pageIndices: List<Int>): File? {
+            if (pageIndices.isEmpty() || pageIndices.any { it < 0 || it >= pageCount }) return null
+            return extractedFile ?: File.createTempFile("fake-extracted", ".pdf")
         }
 
         val imageStamps = mutableListOf<Int>()
