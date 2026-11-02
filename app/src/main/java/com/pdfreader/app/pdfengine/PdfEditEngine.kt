@@ -1,6 +1,8 @@
 package com.pdfreader.app.pdfengine
 
 import android.graphics.Bitmap
+import com.pdfreader.app.model.PdfAttachment
+import com.pdfreader.app.model.PdfFormField
 import com.pdfreader.app.model.PdfOpenResult
 import com.pdfreader.app.model.PdfSource
 import com.pdfreader.app.model.SignatureVerificationResult
@@ -131,6 +133,37 @@ interface PdfEditEngine {
      * reported as not cryptographically valid rather than skipped.
      */
     suspend fun verifySignatures(): List<SignatureVerificationResult>
+
+    /**
+     * Lists every AcroForm field in the currently-open document, flattened (nested fields
+     * included, via PDFBox's own `PDFieldTree`). Returns an empty list if the document has
+     * no AcroForm or none is open — not an error, since most PDFs have no form fields at
+     * all. PDF-009.
+     */
+    suspend fun listFormFields(): List<PdfFormField>
+
+    /**
+     * Sets [fullyQualifiedName]'s value to [value], via PDFBox's generic
+     * `PDField.setValue(String)` (works the same for a text field, checkbox export value, or
+     * choice field, without this app needing a per-type UI yet). Returns false if no
+     * document is open, no field has that name, or PDFBox itself rejects the value. PDF-009.
+     */
+    suspend fun setFormFieldValue(fullyQualifiedName: String, value: String): Boolean
+
+    /**
+     * Lists every embedded file ("attachment") in the currently-open document's
+     * `/Names/EmbeddedFiles` tree. Returns an empty list if the document has none — the
+     * overwhelming majority of PDFs don't. PDF-009.
+     */
+    suspend fun listAttachments(): List<PdfAttachment>
+
+    /**
+     * Extracts [name]'s raw bytes into a new app-private temp file the caller owns (same
+     * "caller copies it to its real destination and deletes it" contract as
+     * [writeValidatedTempCopy]/[extractPages]). Returns null if no document is open, no
+     * attachment has that name, or reading its bytes fails. PDF-009.
+     */
+    suspend fun extractAttachment(name: String): File?
 
     /**
      * Per docs/SECURITY_PRIVACY.md §4 ("write outputs to temporary files, validate/reopen,

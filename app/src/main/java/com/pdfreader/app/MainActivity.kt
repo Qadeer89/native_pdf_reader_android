@@ -114,6 +114,25 @@ class MainActivity : ComponentActivity() {
         }
 
     /**
+     * PDF-009: which attachment [attachmentExtractDestinationLauncher]'s result should save —
+     * set right before launching it, since the name isn't otherwise available once the
+     * picker returns.
+     */
+    private var pendingAttachmentName: String? = null
+
+    /** PDF-009: user picks where to save an extracted attachment — mime type unknown ahead of time. */
+    private val attachmentExtractDestinationLauncher =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { uri ->
+            val name = pendingAttachmentName
+            pendingAttachmentName = null
+            if (uri != null && name != null) {
+                readerViewModel.extractAttachmentTo(name, uri)
+            } else {
+                readerViewModel.acknowledgeAttachmentExtractState()
+            }
+        }
+
+    /**
      * PDF-008: which signing operation [signDestinationLauncher]'s result should finish —
      * set right before launching it, since the destination picker is the last step of
      * either signing flow (Keystore identity or PKCS#12 import) and both need to share one
@@ -177,6 +196,10 @@ class MainActivity : ComponentActivity() {
                     onImportSignatureImageClick = { importSignatureImageLauncher.launch("image/*") },
                     onInsertDocumentClick = { insertDocumentLauncher.launch(arrayOf("application/pdf")) },
                     onExtractCurrentPageClick = { suggestedName -> extractDestinationLauncher.launch(suggestedName) },
+                    onExtractAttachmentClick = { name ->
+                        pendingAttachmentName = name
+                        attachmentExtractDestinationLauncher.launch(name)
+                    },
                     onSignWithIdentityClick = { alias, suggestedName ->
                         pendingSignAction = PendingSignAction.WithIdentity(alias)
                         signDestinationLauncher.launch(suggestedName)

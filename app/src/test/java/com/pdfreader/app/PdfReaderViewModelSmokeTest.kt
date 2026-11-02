@@ -838,6 +838,71 @@ class PdfReaderViewModelSmokeTest {
         assertTrue(!viewModel.passwordRequired.value)
     }
 
+    @Test
+    fun setFormFieldValueUpdatesTheFieldAndRefreshesTheList() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val editEngine = FakePdfEditEngine(
+            initialFormFields = listOf(
+                com.pdfreader.app.model.PdfFormField(fullyQualifiedName = "name", fieldType = "Tx", value = "old"),
+            ),
+        )
+        val viewModel = newViewModel(context, FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT), editEngine = editEngine)
+
+        viewModel.setFormFieldValue("name", "new")
+
+        val loaded = viewModel.uiState.value as ReaderUiState.Loaded
+        assertEquals("new", loaded.formFields.single { it.fullyQualifiedName == "name" }.value)
+    }
+
+    @Test
+    fun setFormFieldValueIsANoOpForAnUnknownFieldName() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val editEngine = FakePdfEditEngine(
+            initialFormFields = listOf(
+                com.pdfreader.app.model.PdfFormField(fullyQualifiedName = "name", fieldType = "Tx", value = "old"),
+            ),
+        )
+        val viewModel = newViewModel(context, FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT), editEngine = editEngine)
+
+        viewModel.setFormFieldValue("does-not-exist", "new")
+
+        val loaded = viewModel.uiState.value as ReaderUiState.Loaded
+        assertEquals("old", loaded.formFields.single { it.fullyQualifiedName == "name" }.value)
+    }
+
+    @Test
+    fun extractAttachmentToSucceedsAndCommitsToTheDestination() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val editEngine = FakePdfEditEngine(
+            initialAttachments = listOf(com.pdfreader.app.model.PdfAttachment(name = "notes.txt", sizeBytes = 10L)),
+        )
+        val destinationWriter = FakeDestinationWriter()
+        val viewModel = newViewModel(
+            context,
+            FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT),
+            editEngine = editEngine,
+            destinationWriter = destinationWriter,
+        )
+        val destination = Uri.parse("content://example/document/attachment-out")
+
+        viewModel.extractAttachmentTo("notes.txt", destination)
+
+        val state = awaitExportState(viewModel, viewModel::attachmentExtractState) { it !is ExportState.Saving }
+        assertTrue("expected Success but got $state", state is ExportState.Success)
+        assertEquals(destination, destinationWriter.lastDestination)
+    }
+
+    @Test
+    fun extractAttachmentToReportsFailureWhenTheAttachmentIsMissing() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val viewModel = newViewModel(context, FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT))
+
+        viewModel.extractAttachmentTo("does-not-exist.txt", Uri.parse("content://example/document/out"))
+
+        val state = awaitExportState(viewModel, viewModel::attachmentExtractState) { it !is ExportState.Saving }
+        assertTrue("expected Failure but got $state", state is ExportState.Failure)
+    }
+
     private suspend fun awaitExportState(
         viewModel: ReaderViewModel,
         predicate: (ExportState) -> Boolean,
@@ -873,10 +938,14 @@ class PdfReaderViewModelSmokeTest {
          * matches exactly. */
         private val requiredPassword: String? = null,
         var signatureVerificationResults: List<com.pdfreader.app.model.SignatureVerificationResult> = emptyList(),
+        initialFormFields: List<com.pdfreader.app.model.PdfFormField> = emptyList(),
+        initialAttachments: List<com.pdfreader.app.model.PdfAttachment> = emptyList(),
     ) : PdfEditEngine {
         val addedAnnotations = mutableListOf<FakeNoteAnnotation>()
         private var pageCount = 0
         var renderPageCallCount: Int = 0
+        var formFieldsResult: List<com.pdfreader.app.model.PdfFormField> = initialFormFields
+        var attachmentsResult: List<com.pdfreader.app.model.PdfAttachment> = initialAttachments
 
         override suspend fun open(source: PdfSource): PdfOpenResult {
             if (!openSucceeds) {
@@ -963,6 +1032,26 @@ class PdfReaderViewModelSmokeTest {
 
         override suspend fun verifySignatures(): List<com.pdfreader.app.model.SignatureVerificationResult> =
             signatureVerificationResults
+
+        override suspend fun listFormFields(): List<com.pdfreader.app.model.PdfFormField> = formFieldsResult
+
+        override suspend fun setFormFieldValue(fullyQualifiedName: String, value: String): Boolean {
+            val index = formFieldsResult.indexOfFirst { it.fullyQualifiedName == fullyQualifiedName }
+            if (index < 0) return false
+            formFieldsResult = formFieldsResult.toMutableList().also {
+                it[index] = it[index].copy(value = value)
+            }
+            return true
+        }
+
+        var extractAttachmentSucceeds: Boolean = true
+
+        override suspend fun listAttachments(): List<com.pdfreader.app.model.PdfAttachment> = attachmentsResult
+
+        override suspend fun extractAttachment(name: String): File? {
+            if (!extractAttachmentSucceeds || attachmentsResult.none { it.name == name }) return null
+            return File.createTempFile("fake-attachment", ".bin")
+        }
 
         override suspend fun writeValidatedTempCopy(): File = File.createTempFile("fake-edit", ".pdf")
 

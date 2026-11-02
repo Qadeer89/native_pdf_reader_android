@@ -62,6 +62,8 @@ import androidx.compose.ui.unit.dp
 import com.pdfreader.app.R
 import com.pdfreader.app.data.recents.RecentDocumentEntity
 import com.pdfreader.app.data.signatures.SavedSignature
+import com.pdfreader.app.model.PdfAttachment
+import com.pdfreader.app.model.PdfFormField
 import com.pdfreader.app.model.SignatureVerificationResult
 import com.pdfreader.app.signing.SigningIdentity
 
@@ -82,12 +84,14 @@ fun ReaderScreen(
     onPkcs12PasswordSubmittedClick: (password: CharArray, suggestedName: String) -> Unit,
     onInsertDocumentClick: () -> Unit,
     onExtractCurrentPageClick: (suggestedName: String) -> Unit,
+    onExtractAttachmentClick: (name: String) -> Unit,
 ) {
     val state by viewModel.uiState.collectAsState()
     val layoutMode by viewModel.layoutMode.collectAsState()
     val exportState by viewModel.exportState.collectAsState()
     val signState by viewModel.signState.collectAsState()
     val extractState by viewModel.extractState.collectAsState()
+    val attachmentExtractState by viewModel.attachmentExtractState.collectAsState()
     val printState by viewModel.printState.collectAsState()
     val pageOpMessage by viewModel.pageOpMessage.collectAsState()
     val recentDocuments by viewModel.recentDocuments.collectAsState()
@@ -107,6 +111,8 @@ fun ReaderScreen(
     var showCreateIdentityDialog by remember { mutableStateOf(false) }
     var showSignatureStatusDialog by remember { mutableStateOf(false) }
     var showMovePageDialog by remember { mutableStateOf(false) }
+    var showFormFieldsDialog by remember { mutableStateOf(false) }
+    var showAttachmentsDialog by remember { mutableStateOf(false) }
     var annotateMode by rememberSaveable { mutableStateOf(false) }
     var signatureMode by rememberSaveable { mutableStateOf(false) }
 
@@ -276,6 +282,16 @@ fun ReaderScreen(
                                     },
                                 )
                             }
+                            if (loaded.formFields.isNotEmpty()) {
+                                TextButton(onClick = { showFormFieldsDialog = true }) {
+                                    Text(stringResource(R.string.reader_forms_action))
+                                }
+                            }
+                            if (loaded.attachments.isNotEmpty()) {
+                                TextButton(onClick = { showAttachmentsDialog = true }) {
+                                    Text(stringResource(R.string.reader_attachments_action))
+                                }
+                            }
                         }
                     }
                     Box {
@@ -377,6 +393,10 @@ fun ReaderScreen(
                 ExportStateBanner(exportState = exportState, onDismiss = viewModel::acknowledgeExportState)
                 SignStateBanner(signState = signState, onDismiss = viewModel::acknowledgeSignState)
                 ExtractStateBanner(extractState = extractState, onDismiss = viewModel::acknowledgeExtractState)
+                AttachmentExtractStateBanner(
+                    extractState = attachmentExtractState,
+                    onDismiss = viewModel::acknowledgeAttachmentExtractState,
+                )
                 PrintStateBanner(printState = printState, onDismiss = viewModel::acknowledgePrintState)
             }
         }
@@ -453,6 +473,23 @@ fun ReaderScreen(
                 onSubmit = { password -> viewModel.submitPassword(password) },
             )
         }
+        if (showFormFieldsDialog && loadedState != null) {
+            FormFieldsDialog(
+                fields = loadedState.formFields,
+                onDismiss = { showFormFieldsDialog = false },
+                onSave = { fullyQualifiedName, value -> viewModel.setFormFieldValue(fullyQualifiedName, value) },
+            )
+        }
+        if (showAttachmentsDialog && loadedState != null) {
+            AttachmentsDialog(
+                attachments = loadedState.attachments,
+                onDismiss = { showAttachmentsDialog = false },
+                onExtract = { name ->
+                    showAttachmentsDialog = false
+                    onExtractAttachmentClick(name)
+                },
+            )
+        }
     }
 }
 
@@ -523,6 +560,24 @@ private fun PrintStateBanner(printState: PrintState, modifier: Modifier = Modifi
         is PrintState.Failure -> {
             Snackbar(modifier = modifier, action = { TextButton(onClick = onDismiss) { Text("OK") } }) {
                 Text(printState.reason)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AttachmentExtractStateBanner(extractState: ExportState, modifier: Modifier = Modifier, onDismiss: () -> Unit) {
+    when (extractState) {
+        is ExportState.Idle -> Unit
+        is ExportState.Saving -> Snackbar(modifier = modifier) { Text(stringResource(R.string.attachment_extract_saving)) }
+        is ExportState.Success -> {
+            Snackbar(modifier = modifier, action = { TextButton(onClick = onDismiss) { Text("OK") } }) {
+                Text(stringResource(R.string.attachment_extract_success))
+            }
+        }
+        is ExportState.Failure -> {
+            Snackbar(modifier = modifier, action = { TextButton(onClick = onDismiss) { Text("OK") } }) {
+                Text(extractState.reason)
             }
         }
     }
@@ -625,6 +680,90 @@ private fun InsertPositionDialog(pageCount: Int, onDismiss: () -> Unit, onInsert
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.insert_position_cancel)) }
+        },
+    )
+}
+
+/**
+ * Lists every AcroForm field found in the document (PDF-009) with an editable text field
+ * per row. [PdfFormField.value] is read/written as a plain string via PDFBox's generic
+ * `PDField`, so a checkbox or choice field's "value" here is its raw export-value text
+ * (e.g. "Yes"/"Off") rather than a checkbox toggle or a dropdown — a simpler v1 scope than
+ * per-field-type widgets, same incremental approach PDF-005 started with a plain text note.
+ */
+@Composable
+private fun FormFieldsDialog(
+    fields: List<PdfFormField>,
+    onDismiss: () -> Unit,
+    onSave: (fullyQualifiedName: String, value: String) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.form_fields_title)) },
+        text = {
+            LazyColumn {
+                items(fields, key = { it.fullyQualifiedName }) { field ->
+                    var text by rememberSaveable(field.fullyQualifiedName) { mutableStateOf(field.value.orEmpty()) }
+                    androidx.compose.foundation.layout.Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                        Text(field.fullyQualifiedName, style = MaterialTheme.typography.labelMedium)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(
+                                value = text,
+                                onValueChange = { text = it },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(
+                                enabled = text != field.value.orEmpty(),
+                                onClick = { onSave(field.fullyQualifiedName, text) },
+                            ) {
+                                Text(stringResource(R.string.form_field_save))
+                            }
+                        }
+                    }
+                    HorizontalDivider()
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.form_fields_done)) }
+        },
+    )
+}
+
+/** Lists embedded-file attachments found in the document (PDF-009) with an extract action per item. */
+@Composable
+private fun AttachmentsDialog(
+    attachments: List<PdfAttachment>,
+    onDismiss: () -> Unit,
+    onExtract: (name: String) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.attachments_title)) },
+        text = {
+            LazyColumn {
+                items(attachments, key = { it.name }) { attachment ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        androidx.compose.foundation.layout.Column(modifier = Modifier.weight(1f)) {
+                            Text(attachment.name)
+                            val sizeLabel = attachment.sizeBytes?.let { "$it bytes" } ?: "—"
+                            Text(sizeLabel, style = MaterialTheme.typography.labelSmall)
+                        }
+                        TextButton(onClick = { onExtract(attachment.name) }) {
+                            Text(stringResource(R.string.attachment_extract_action))
+                        }
+                    }
+                    HorizontalDivider()
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.attachments_done)) }
         },
     )
 }

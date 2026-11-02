@@ -2,7 +2,9 @@ package com.pdfreader.app.pdfengine
 
 import android.content.Context
 import android.graphics.Bitmap
+import com.pdfreader.app.model.PdfAttachment
 import com.pdfreader.app.model.PdfDocumentHandle
+import com.pdfreader.app.model.PdfFormField
 import com.pdfreader.app.model.PdfOpenError
 import com.pdfreader.app.model.PdfOpenResult
 import com.pdfreader.app.model.PdfSource
@@ -10,7 +12,9 @@ import com.pdfreader.app.model.SignatureVerificationResult
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
+import com.tom_roush.pdfbox.pdmodel.common.PDNameTreeNode
 import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
+import com.tom_roush.pdfbox.pdmodel.common.filespecification.PDComplexFileSpecification
 import com.tom_roush.pdfbox.pdmodel.encryption.InvalidPasswordException
 import com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject
 import com.tom_roush.pdfbox.pdmodel.interactive.annotation.PDAnnotationText
@@ -490,6 +494,87 @@ class PdfBoxEditEngine(
                 null
             }
         }
+    }
+
+    override suspend fun listFormFields(): List<PdfFormField> = withContext(ioDispatcher) {
+        lock.withLock {
+            val doc = document ?: return@withContext emptyList()
+            val acroForm = doc.documentCatalog.acroForm ?: return@withContext emptyList()
+            acroForm.fieldTree.mapNotNull { field ->
+                try {
+                    PdfFormField(
+                        fullyQualifiedName = field.fullyQualifiedName,
+                        fieldType = field.fieldType,
+                        value = field.valueAsString,
+                    )
+                } catch (e: Exception) {
+                    // A single malformed field must not take down the whole listing.
+                    null
+                }
+            }
+        }
+    }
+
+    override suspend fun setFormFieldValue(fullyQualifiedName: String, value: String): Boolean = withContext(ioDispatcher) {
+        lock.withLock {
+            val doc = document ?: return@withContext false
+            val acroForm = doc.documentCatalog.acroForm ?: return@withContext false
+            val field = acroForm.getField(fullyQualifiedName) ?: return@withContext false
+            try {
+                field.setValue(value)
+                true
+            } catch (e: IOException) {
+                false
+            }
+        }
+    }
+
+    override suspend fun listAttachments(): List<PdfAttachment> = withContext(ioDispatcher) {
+        lock.withLock {
+            val doc = document ?: return@withContext emptyList()
+            collectAttachmentSpecs(doc).map { (name, spec) ->
+                PdfAttachment(name = name, sizeBytes = spec.embeddedFile?.size?.toLong())
+            }
+        }
+    }
+
+    override suspend fun extractAttachment(name: String): File? = withContext(ioDispatcher) {
+        lock.withLock {
+            val doc = document ?: return@withContext null
+            val embeddedFile = collectAttachmentSpecs(doc)[name]?.embeddedFile ?: return@withContext null
+            try {
+                val safeName = name.replace(Regex("[/\\\\]"), "_")
+                val tempFile = File(context.cacheDir, "pdf-attachment-${UUID.randomUUID()}-$safeName")
+                tempFile.writeBytes(embeddedFile.toByteArray())
+                tempFile
+            } catch (e: IOException) {
+                null
+            }
+        }
+    }
+
+    /**
+     * Flattens the document's `/Names/EmbeddedFiles` name tree (PDF-009) into a single
+     * name-to-spec map, recursing into [com.tom_roush.pdfbox.pdmodel.PDNameTreeNode.getKids]
+     * when a node has child nodes instead of names directly — PDFBox's tree may be split
+     * either way depending on how the document was produced.
+     */
+    private fun collectAttachmentSpecs(doc: PDDocument): Map<String, PDComplexFileSpecification> {
+        val root = doc.documentCatalog.names?.embeddedFiles ?: return emptyMap()
+        return try {
+            // getNames()/getKids() declare IOException for a malformed name tree — a single
+            // bad attachment entry must not take down every other feature on this document.
+            collectNames(root)
+        } catch (e: IOException) {
+            emptyMap()
+        }
+    }
+
+    private fun collectNames(node: PDNameTreeNode<PDComplexFileSpecification>): Map<String, PDComplexFileSpecification> {
+        node.names?.let { return it }
+        val result = mutableMapOf<String, PDComplexFileSpecification>()
+        node.kids?.forEach { kid -> result.putAll(collectNames(kid)) }
+        return result
     }
 
     override suspend fun close() = withContext(ioDispatcher) {

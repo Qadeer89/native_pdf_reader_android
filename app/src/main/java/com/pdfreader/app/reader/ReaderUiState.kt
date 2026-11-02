@@ -2,6 +2,8 @@ package com.pdfreader.app.reader
 
 import android.graphics.Bitmap
 import com.pdfreader.app.data.documents.DocumentMetadata
+import com.pdfreader.app.model.PdfAttachment
+import com.pdfreader.app.model.PdfFormField
 import com.pdfreader.app.model.PdfOpenError
 import com.pdfreader.app.model.SignatureVerificationResult
 
@@ -40,6 +42,15 @@ sealed class ReaderUiState {
          * like the fields above. Empty for a document with no signatures.
          */
         val signatureVerifications: List<SignatureVerificationResult> = emptyList(),
+        /**
+         * AcroForm fields and embedded-file attachments already in the opened document
+         * (PDF-009), computed once when the document was opened — same shape as
+         * [signatureVerifications]. [formFields] is re-fetched after a successful
+         * [ReaderViewModel.setFormFieldValue] so edited values are reflected immediately.
+         * Both are empty for the overwhelming majority of PDFs that have neither.
+         */
+        val formFields: List<PdfFormField> = emptyList(),
+        val attachments: List<PdfAttachment> = emptyList(),
     ) : ReaderUiState()
 
     data class Error(val error: PdfOpenError) : ReaderUiState()

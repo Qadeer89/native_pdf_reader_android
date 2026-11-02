@@ -12,6 +12,8 @@ import com.pdfreader.app.data.recents.RecentDocumentsRepository
 import com.pdfreader.app.data.signatures.ImageUriDecoder
 import com.pdfreader.app.data.signatures.SavedSignature
 import com.pdfreader.app.data.signatures.SignatureRepository
+import com.pdfreader.app.model.PdfAttachment
+import com.pdfreader.app.model.PdfFormField
 import com.pdfreader.app.model.PdfOpenError
 import com.pdfreader.app.model.PdfOpenResult
 import com.pdfreader.app.model.PdfSource
@@ -121,6 +123,9 @@ class ReaderViewModel(
     private val _extractState = MutableStateFlow<ExportState>(ExportState.Idle)
     val extractState: StateFlow<ExportState> = _extractState.asStateFlow()
 
+    private val _attachmentExtractState = MutableStateFlow<ExportState>(ExportState.Idle)
+    val attachmentExtractState: StateFlow<ExportState> = _attachmentExtractState.asStateFlow()
+
     private val _printState = MutableStateFlow<PrintState>(PrintState.Idle)
     val printState: StateFlow<PrintState> = _printState.asStateFlow()
 
@@ -171,6 +176,10 @@ class ReaderViewModel(
 
     /** Existing digital signatures found in the currently open document — see [openSource]. PDF-008. */
     private var signatureVerifications: List<SignatureVerificationResult> = emptyList()
+
+    /** AcroForm fields and embedded-file attachments found in the currently open document — see [openSource]. PDF-009. */
+    private var formFields: List<PdfFormField> = emptyList()
+    private var attachments: List<PdfAttachment> = emptyList()
 
     /**
      * Cache of already-rendered page/thumbnail bitmaps for the currently open document,
@@ -465,6 +474,53 @@ class ReaderViewModel(
         _extractState.value = ExportState.Idle
     }
 
+    /**
+     * Sets an AcroForm field's value (PDF-009). Unlike the page-structure operations above,
+     * this is **not** staged — PDFBox's `PDField.setValue` writes straight into the live
+     * in-memory document, same as [addNoteAnnotation], and [formFields] is refetched
+     * immediately afterward so the UI reflects the new value without needing an export.
+     */
+    fun setFormFieldValue(fullyQualifiedName: String, value: String) {
+        if (!editEngineAvailable) return
+        viewModelScope.launch {
+            if (pdfEditEngine.setFormFieldValue(fullyQualifiedName, value)) {
+                formFields = pdfEditEngine.listFormFields()
+                val current = _uiState.value
+                if (current is ReaderUiState.Loaded) {
+                    _uiState.value = current.copy(formFields = formFields)
+                }
+            }
+        }
+    }
+
+    /**
+     * Extracts [name]'s attached-file bytes to [destination] (PDF-009) — never mutates the
+     * open document (same shape as [extractCurrentPageTo]), so it writes out immediately
+     * rather than staging anything.
+     */
+    fun extractAttachmentTo(name: String, destination: Uri) {
+        if (!editEngineAvailable) return
+        viewModelScope.launch {
+            _attachmentExtractState.value = ExportState.Saving
+            val extracted = pdfEditEngine.extractAttachment(name)
+            if (extracted == null) {
+                _attachmentExtractState.value = ExportState.Failure("Could not extract this attachment.")
+                return@launch
+            }
+            val committed = destinationWriter.writeFileToUri(extracted, destination)
+            extracted.delete()
+            _attachmentExtractState.value = if (committed) {
+                ExportState.Success
+            } else {
+                ExportState.Failure("Could not save the attachment.")
+            }
+        }
+    }
+
+    fun acknowledgeAttachmentExtractState() {
+        _attachmentExtractState.value = ExportState.Idle
+    }
+
     /** Marks [id] as the signature [placeSignatureAt] will stamp next (PDF-007). */
     fun selectSignature(id: String) {
         _selectedSignatureId.value = id
@@ -671,6 +727,8 @@ class ReaderViewModel(
         // Computed once per document open, not staged/session-only like the edit features
         // above — this reports what's actually already in the file (PDF-008 "validate").
         signatureVerifications = if (editEngineAvailable) pdfEditEngine.verifySignatures() else emptyList()
+        formFields = if (editEngineAvailable) pdfEditEngine.listFormFields() else emptyList()
+        attachments = if (editEngineAvailable) pdfEditEngine.listAttachments() else emptyList()
 
         val engineResult = pdfEngine.open(source)
         when {
@@ -757,6 +815,8 @@ class ReaderViewModel(
                 pageRotationDegrees = pageRotationsDegrees.getOrDefault(pageIndex, 0),
                 signatureStamps = signatureStampsByPage[pageIndex].orEmpty(),
                 signatureVerifications = signatureVerifications,
+                formFields = formFields,
+                attachments = attachments,
             )
         } else {
             _uiState.value = ReaderUiState.Error(PdfOpenError.Unexpected("render returned no page"))

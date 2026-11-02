@@ -28,6 +28,16 @@
     <string name="password_prompt_label">Password</string>
     <string name="password_prompt_confirm">Unlock</string>
     <string name="password_prompt_cancel">Cancel</string>
+    <string name="reader_forms_action">Forms</string>
+    <string name="reader_attachments_action">Attachments</string>
+    <string name="form_fields_title">Form fields</string>
+    <string name="form_field_save">Save</string>
+    <string name="form_fields_done">Done</string>
+    <string name="attachments_title">Attachments</string>
+    <string name="attachment_extract_action">Extract</string>
+    <string name="attachments_done">Done</string>
+    <string name="attachment_extract_saving">Extracting attachment…</string>
+    <string name="attachment_extract_success">Saved the attachment.</string>
     <string name="reader_page_menu_action">Page</string>
     <string name="reader_page_rotate">Rotate 90°</string>
     <string name="reader_page_delete">Delete this page</string>

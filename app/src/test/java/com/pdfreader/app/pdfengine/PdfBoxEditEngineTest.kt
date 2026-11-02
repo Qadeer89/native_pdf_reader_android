@@ -4,6 +4,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.pdfreader.app.model.PdfOpenResult
 import com.pdfreader.app.model.PdfSource
 import com.tom_roush.pdfbox.pdmodel.PDDocument
+import java.io.ByteArrayInputStream
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
@@ -442,6 +443,110 @@ class PdfBoxEditEngineTest {
         } finally {
             sourceFile.delete()
             encryptedFile.delete()
+        }
+    }
+
+    /**
+     * PDF-009: a text AcroForm field can be read via [PdfEditEngine.listFormFields] and
+     * written via [PdfEditEngine.setFormFieldValue] using only [PDField]'s generic
+     * string-based API — no per-field-type special-casing (see planning/ADR.md ADR-021).
+     */
+    @Test
+    fun listsAndUpdatesAnAcroFormTextField() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val engine = PdfBoxEditEngine(context, ioDispatcher = Dispatchers.Unconfined)
+        val formFile = File.createTempFile("pdfbox-edit-engine-test-form", ".pdf")
+        try {
+            PDDocument().use { doc ->
+                doc.addPage(com.tom_roush.pdfbox.pdmodel.PDPage())
+                val acroForm = com.tom_roush.pdfbox.pdmodel.interactive.form.PDAcroForm(doc)
+                doc.documentCatalog.acroForm = acroForm
+                val textField = com.tom_roush.pdfbox.pdmodel.interactive.form.PDTextField(acroForm)
+                textField.partialName = "customer_name"
+                textField.value = "old value"
+                acroForm.fields = listOf(textField)
+                doc.save(formFile)
+            }
+
+            engine.open(PdfSource.LocalFile(formFile))
+
+            val fields = engine.listFormFields()
+            assertEquals(1, fields.size)
+            assertEquals("customer_name", fields.single().fullyQualifiedName)
+            assertEquals("old value", fields.single().value)
+
+            assertTrue("setFormFieldValue should report success for a known field", engine.setFormFieldValue("customer_name", "new value"))
+            assertEquals("new value", engine.listFormFields().single().value)
+
+            // An unknown field name must not crash and must report failure.
+            assertTrue(!engine.setFormFieldValue("does-not-exist", "x"))
+
+            val tempCopy = engine.writeValidatedTempCopy()
+            assertTrue(tempCopy != null)
+            PDDocument.load(tempCopy!!).use { reopened ->
+                val reopenedField = reopened.documentCatalog.acroForm.getField("customer_name")
+                assertEquals("new value", (reopenedField as com.tom_roush.pdfbox.pdmodel.interactive.form.PDTextField).value)
+            }
+            tempCopy.delete()
+            engine.close()
+        } finally {
+            formFile.delete()
+        }
+    }
+
+    /**
+     * PDF-009: an embedded file listed in the document's `/Names/EmbeddedFiles` name tree
+     * can be enumerated via [PdfEditEngine.listAttachments] and its bytes recovered via
+     * [PdfEditEngine.extractAttachment].
+     */
+    @Test
+    fun listsAndExtractsAnEmbeddedFileAttachment() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val engine = PdfBoxEditEngine(context, ioDispatcher = Dispatchers.Unconfined)
+        val attachmentFile = File.createTempFile("pdfbox-edit-engine-test-attachment", ".pdf")
+        val attachmentBytes = "hello attachment".toByteArray()
+        try {
+            PDDocument().use { doc ->
+                doc.addPage(com.tom_roush.pdfbox.pdmodel.PDPage())
+
+                val embeddedFile = com.tom_roush.pdfbox.pdmodel.common.filespecification.PDEmbeddedFile(
+                    doc,
+                    ByteArrayInputStream(attachmentBytes),
+                )
+                embeddedFile.size = attachmentBytes.size
+
+                val fileSpec = com.tom_roush.pdfbox.pdmodel.common.filespecification.PDComplexFileSpecification()
+                fileSpec.setFile("notes.txt")
+                fileSpec.embeddedFile = embeddedFile
+
+                val efTree = com.tom_roush.pdfbox.pdmodel.PDEmbeddedFilesNameTreeNode()
+                efTree.names = mapOf("notes.txt" to fileSpec)
+
+                val namesDictionary = com.tom_roush.pdfbox.pdmodel.PDDocumentNameDictionary(doc.documentCatalog)
+                namesDictionary.embeddedFiles = efTree
+                doc.documentCatalog.names = namesDictionary
+
+                doc.save(attachmentFile)
+            }
+
+            engine.open(PdfSource.LocalFile(attachmentFile))
+
+            val attachments = engine.listAttachments()
+            assertEquals(1, attachments.size)
+            assertEquals("notes.txt", attachments.single().name)
+            assertEquals(attachmentBytes.size.toLong(), attachments.single().sizeBytes)
+
+            val extracted = engine.extractAttachment("notes.txt")
+            assertTrue("expected the extracted attachment file but got null", extracted != null)
+            assertEquals("hello attachment", extracted!!.readText())
+            extracted.delete()
+
+            // An unknown attachment name must not crash and must report failure.
+            assertTrue(engine.extractAttachment("does-not-exist.txt") == null)
+
+            engine.close()
+        } finally {
+            attachmentFile.delete()
         }
     }
 }
