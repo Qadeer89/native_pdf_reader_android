@@ -12,12 +12,13 @@
 - [x] PDF engine for annotations/page-ops/forms: **Approved 2026-10-30** — PDFBox-Android. See DEC-001.
 - [ ] Commercial SDK budget and licensing model — no longer relevant unless DEC-001 is revisited (e.g. the maintenance-staleness risk materializes).
 - [x] Exact digital-signature profile requirements: certificate formats, PAdES level, timestamps, revocation checks, trust roots, hardware-backed/remote signing. **Approved 2026-10-30 — see DEC-002.**
-- [ ] Cloud provider, deployment region, data residency, retention and backup/deletion policy.
-- [ ] Is end-to-end encryption required, or is TLS + provider encryption at rest acceptable for MVP? Do not describe the latter as E2EE.
+- [x] Cloud provider, deployment region, data residency, retention and backup/deletion policy. **Approved 2026-11-03 — see DEC-003.**
+- [x] Is end-to-end encryption required, or is TLS + provider encryption at rest acceptable for MVP? Do not describe the latter as E2EE. **Approved 2026-11-03 — TLS + provider-at-rest, explicitly not E2EE. See DEC-003.**
 - [ ] Cloud sharing/collaboration scope and roles.
 - [ ] OCR and permanent redaction: MVP, later or excluded.
 - [ ] App name, applicationId/package name, distribution channel and privacy contact.
 - [ ] Recovery expectations for visual signatures and digital-signing keys across device changes/reinstalls.
+- [ ] Mobile ads: ad network (user mentioned AdMob/Google Ads implicitly by asking about Firebase compatibility, not yet confirmed), ad placement/UX, consent (GDPR/UMP) flow, and whether ad SDK data collection needs its own privacy disclosure. Raised 2026-11-03, not yet scoped or started — tracked here so it isn't lost, separate from the PDF-011 cloud-sync work it was mentioned alongside.
 
 ## Decision log
 
@@ -71,6 +72,22 @@
 - Security/privacy impact: if approved as-is, the app will **not** check certificate revocation or provide a long-term-validation story — both must be surfaced in the signing/verification UI as stated limitations, not hidden, per `docs/SECURITY_PRIVACY.md` §5 and §8 ("No release with... false claims about signature... security").
 - Licensing/cost impact: none — BouncyCastle and PDFBox-Android are both already approved/present; no new paid service, TSA subscription, or SDK is introduced by this profile.
 - Consequences and follow-up tasks: (1) **done** — the signing-engine POC passed (see Status above); a real finding from it: Robolectric transitively depends on `org.bouncycastle:bcprov-jdk18on`, a different artifact from (but the same Java package as) the `bcprov/bcpkix-jdk15to18:1.72` PDFBox-Android brings as a production dependency, and having both on the unit-test classpath caused `NoSuchFieldError` from mixed BC class versions — fixed by excluding the `jdk18on` variant from the `testImplementation(libs.robolectric)` dependency in `app/build.gradle.kts` (confirmed via `./gradlew :app:dependencies --configuration debugRuntimeClasspath` that only `jdk15to18` ever reaches the shipped app, so this was a test-classpath-only issue); (2) not started — design the PKCS#12-import flow and the Keystore-self-signed flow as explicitly separate, separately-tested features; (3) not started — write the "this app does not check revocation / has no long-term validation story" disclosure into whatever UI shows a signature's status; (4) not started — verify the exact Android API level for PKCS12-related APIs against official Android docs, not secondary sources, before implementation.
+
+### DEC-003 — Cloud provider, encryption and retention policy for PDF-011 (cloud sync)
+- Date: 2026-11-03
+- Status: **Approved 2026-11-03** by the user. Cleared to begin PDF-011 implementation (SEC-002's emulator-based cross-user denial tests must land before any production cloud resource is enabled, per `MASTER_PROMPT.md` workflow step 6 — see Consequences below).
+- Owner: User (approved directly).
+- Context: `docs/ARCHITECTURE.md`/this file gate PDF-011 (cloud sync) and SEC-002 (cloud authorization) behind a cloud provider/region/retention/E2EE decision. The user also asked, in the same exchange, whether Firebase is free and whether it's compatible with running mobile ads in the app — answered inline (Firebase's free "Spark" tier covers Auth/Firestore/Storage at small-medium scale; ad SDKs are unrelated to the cloud-backend choice and don't conflict either way) but **mobile ads itself is a new, separate, not-yet-scoped feature** — tracked as its own open question above, deliberately not bundled into this decision.
+- Decision:
+  - **Provider**: Firebase (Auth + Firestore + Cloud Storage) — the candidate stack already named in this doc's "Confirmed" section, not a new procurement.
+  - **Encryption**: TLS in transit + the provider's own encryption at rest. Explicitly **not** end-to-end encryption — per the Assumption policy below, this must never be described to the user as E2EE in any UI/docs copy.
+  - **Retention/deletion**: no fixed retention window; deleting a document (or the account) deletes its cloud copy promptly. No separate backup-retention tier.
+  - **Region**: not pinned to a specific region in this decision — Firebase's default multi-region or nearest-region behavior is acceptable for MVP; revisit only if a data-residency requirement surfaces later (e.g. a specific jurisdiction's compliance need).
+- Alternatives: a custom backend (more control, materially more implementation/hosting work, no free tier) was offered and explicitly declined by the user in favor of Firebase.
+- Rationale: lowest-friction path that still satisfies "uploads must be explicit/consented and private by default" (Confirmed section above) — Firebase Auth gives per-user identity for Firestore/Storage security rules (needed for SEC-002's "deny cross-user access" requirement) with no new infrastructure to stand up or pay for upfront.
+- Security/privacy impact: owner-scoped Firestore/Storage security rules and emulator-based cross-user-denial tests (SEC-002) are required *before* any production Firebase project is actually connected/enabled, per `MASTER_PROMPT.md` workflow step 6 — this decision authorizes starting that implementation work, not skipping that gate. The "not E2EE" limitation must be disclosed wherever cloud sync is explained to the user (consistent with DEC-002's precedent for disclosing the revocation-checking gap).
+- Licensing/cost impact: Firebase Spark (free) tier for MVP scale; no cost until usage exceeds free-tier quotas, at which point Blaze (pay-as-you-go) would be needed — not a concern at this stage.
+- Consequences and follow-up tasks: (1) not started — add Firebase SDK dependencies (`google-services` Gradle plugin, Firebase BOM, Auth/Firestore/Storage artifacts) to `gradle/libs.versions.toml`/`app/build.gradle.kts`, with their own license/version entry in `planning/DEPENDENCY_LICENSE_INVENTORY.md`; (2) not started — **the user must create the actual Firebase project** (console.firebase.google.com), register this app's `applicationId` as an Android app in it, and provide the downloaded `google-services.json` — account creation and Google Cloud Console actions are outside what this agent performs on the user's behalf; nothing in this feature can run end-to-end without that file; (3) not started — design owner-scoped Firestore/Storage security rules and SEC-002's emulator-based cross-user-denial tests; (4) not started — offline queue/retry/conflict-resolution design (PDF-011); (5) not started — mobile ads remains a fully separate, unscoped feature (see the open-questions list above) and must not be conflated with this cloud-sync work.
 
 ### Template for future entries
 ### DEC-XXX — [Decision title]

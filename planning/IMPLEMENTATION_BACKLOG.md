@@ -74,10 +74,14 @@ Tracks concrete work items against `docs/IMPLEMENTATION_PLAN.md` phases and `doc
 - [ ] Imported PKCS#12 certificates are not previewed (subject/expiry) before signing — the password dialog has no "this is the certificate for Jane Doe, expires 2027" confirmation step.
 - [ ] No UI indication of a signing identity's own expiry (self-signed certs are created with a ~100-year validity in `AndroidKeystoreSigningIdentityManager`, so this mostly matters for imported PKCS#12 certs with a real, shorter expiry).
 
-## Phase 5 — Cloud accounts and sync (blocked)
-- [ ] **Gate not yet passed**: cloud provider/region/retention/E2EE decision in `docs/DECISIONS_AND_OPEN_QUESTIONS.md`.
+## Phase 5 — Cloud accounts and sync (gate passed, interface scaffolding started)
+- [x] **Gate passed**: cloud provider/region/retention/E2EE decision approved as DEC-003 (`docs/DECISIONS_AND_OPEN_QUESTIONS.md`, 2026-11-03) — Firebase (Auth+Firestore+Storage), TLS+provider-at-rest (explicitly not E2EE), delete-on-request retention.
+- [x] `CloudUser`/`CloudAuthRepository` (interface) + `NotConfiguredCloudAuthRepository` (stub: always signed-out, fails sign-in with a clear reason) under `app/src/main/java/com/pdfreader/app/cloud/` — lets the rest of the app build against the auth interface before the real Firebase SDK is wired in. 3 tests in `NotConfiguredCloudAuthRepositoryTest`.
+- [ ] **Blocked on an external, user-only step**: the real Firebase project must be created at console.firebase.google.com, this app's `applicationId` registered as an Android app in it, and the downloaded `google-services.json` placed at `app/google-services.json` — account creation and Google Cloud Console actions are outside what this agent can do on the user's behalf. Nothing past the stub above can be wired to a real backend without that file; adding the `google-services` Gradle plugin/Firebase dependencies before it exists would fail the build (now caught by CI).
+- [ ] Google Sign-In was assumed as the default auth method for the real implementation (reasonable default for a "sync to the cloud" feature) but not separately confirmed with the user — revisit if a different method is wanted.
 - [ ] Auth, owner-scoped Firestore/Storage rules (or chosen backend), emulator-based cross-user denial tests before any production cloud resource is enabled, per `MASTER_PROMPT.md` workflow step 6. — PDF-011, SEC-002
 - [ ] Offline queue, retry/backoff, conflict resolution, deletion propagation. — PDF-011
+- [ ] Mobile ads (user-raised alongside this decision, not yet scoped): ad network, placement/UX, consent (GDPR/UMP) flow — deliberately not bundled into this cloud-sync work. See open question in `docs/DECISIONS_AND_OPEN_QUESTIONS.md`.
 
 ## Phase 6 — Hardening (malformed-PDF corpus started)
 - [x] Malformed PDF corpus testing against PDFBox-Android — see Phase 3's entry above for detail. — SEC-001
