@@ -458,11 +458,30 @@ class PdfBoxEditEngineTest {
         val formFile = File.createTempFile("pdfbox-edit-engine-test-form", ".pdf")
         try {
             PDDocument().use { doc ->
-                doc.addPage(com.tom_roush.pdfbox.pdmodel.PDPage())
+                val page = com.tom_roush.pdfbox.pdmodel.PDPage()
+                doc.addPage(page)
                 val acroForm = com.tom_roush.pdfbox.pdmodel.interactive.form.PDAcroForm(doc)
                 doc.documentCatalog.acroForm = acroForm
+                // PDTextField.setValue() regenerates the widget's appearance stream, which
+                // needs a font to measure against (via the AcroForm's default resources) and
+                // a widget with a real rectangle/page — without these it throws
+                // IllegalArgumentException rather than just writing the value.
+                val resources = com.tom_roush.pdfbox.pdmodel.PDResources()
+                resources.put(
+                    com.tom_roush.pdfbox.cos.COSName.getPDFName("Helv"),
+                    com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA,
+                )
+                acroForm.defaultResources = resources
                 val textField = com.tom_roush.pdfbox.pdmodel.interactive.form.PDTextField(acroForm)
                 textField.partialName = "customer_name"
+                textField.defaultAppearance = "/Helv 0 Tf 0 g"
+                val widget = textField.widgets.firstOrNull()
+                    ?: com.tom_roush.pdfbox.pdmodel.interactive.annotation.PDAnnotationWidget().also {
+                        textField.widgets = listOf(it)
+                    }
+                widget.rectangle = com.tom_roush.pdfbox.pdmodel.common.PDRectangle(0f, 0f, 100f, 20f)
+                widget.page = page
+                page.annotations = listOf(widget)
                 textField.value = "old value"
                 acroForm.fields = listOf(textField)
                 doc.save(formFile)
