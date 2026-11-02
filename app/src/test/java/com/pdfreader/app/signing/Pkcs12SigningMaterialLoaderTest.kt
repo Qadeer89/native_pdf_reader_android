@@ -89,4 +89,32 @@ class Pkcs12SigningMaterialLoaderTest {
 
         assertNull(material)
     }
+
+    /**
+     * SEC-003 (key/signature safety): the password must not be left sitting in memory once
+     * [BouncyCastlePkcs12SigningMaterialLoader] is done with it — on success or on failure.
+     */
+    @Test
+    fun zeroesThePasswordArrayAfterASuccessfulLoad() = runTest {
+        val password = "correct-password".toCharArray()
+        val pkcs12Bytes = buildPkcs12Bytes(password.copyOf())
+        val loader = BouncyCastlePkcs12SigningMaterialLoader(ioDispatcher = Dispatchers.Unconfined)
+
+        val material = loader.load(pkcs12Bytes, password)
+
+        assertEquals("loading with the correct password must succeed", true, material != null)
+        assertEquals(CharArray(password.size) { '\u0000' }.concatToString(), password.concatToString())
+    }
+
+    @Test
+    fun zeroesThePasswordArrayEvenWhenTheLoadFails() = runTest {
+        val pkcs12Bytes = buildPkcs12Bytes("correct-password".toCharArray())
+        val wrongPassword = "wrong-password".toCharArray()
+        val loader = BouncyCastlePkcs12SigningMaterialLoader(ioDispatcher = Dispatchers.Unconfined)
+
+        val material = loader.load(pkcs12Bytes, wrongPassword)
+
+        assertNull(material)
+        assertEquals(CharArray(wrongPassword.size) { '\u0000' }.concatToString(), wrongPassword.concatToString())
+    }
 }

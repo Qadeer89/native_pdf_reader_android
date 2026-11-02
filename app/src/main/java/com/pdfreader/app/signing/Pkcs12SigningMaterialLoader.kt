@@ -51,6 +51,11 @@ class BouncyCastlePkcs12SigningMaterialLoader(
                 privateKey to chain
             } catch (_: Exception) {
                 null
+            } finally {
+                // password is the same array the caller holds (never copied) — zeroing it
+                // here, once both KeyStore calls above are done with it, clears it for the
+                // caller too, instead of leaving the plaintext for the GC's own schedule.
+                password.fill('\u0000')
             }
         }
 }

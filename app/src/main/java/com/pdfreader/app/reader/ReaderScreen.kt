@@ -1199,7 +1199,10 @@ private fun CreateSigningIdentityDialog(onDismiss: () -> Unit, onCreate: (displa
  */
 @Composable
 private fun PasswordPromptDialog(errorMessage: String?, onDismiss: () -> Unit, onSubmit: (password: String) -> Unit) {
-    var password by rememberSaveable { mutableStateOf("") }
+    // Deliberately `remember`, not `rememberSaveable` (docs/SECURITY_PRIVACY.md §2 — never
+    // persist a password): `rememberSaveable` would serialize the typed-so-far plaintext into
+    // the saved-instance-state Bundle, surviving a config change or process-death restore.
+    var password by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1237,7 +1240,9 @@ private fun PasswordPromptDialog(errorMessage: String?, onDismiss: () -> Unit, o
 
 @Composable
 private fun Pkcs12PasswordDialog(onDismiss: () -> Unit, onSubmit: (password: CharArray) -> Unit) {
-    var password by rememberSaveable { mutableStateOf("") }
+    // Deliberately `remember`, not `rememberSaveable` — see the same note on
+    // [PasswordPromptDialog] above.
+    var password by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,

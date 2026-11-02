@@ -82,7 +82,8 @@ Tracks concrete work items against `docs/IMPLEMENTATION_PLAN.md` phases and `doc
 ## Phase 6 — Hardening (malformed-PDF corpus started)
 - [x] Malformed PDF corpus testing against PDFBox-Android — see Phase 3's entry above for detail. — SEC-001
 - [ ] Dependency vulnerability/license scan wired into CI.
-- [ ] Log/crash-report inspection for sensitive data leakage. — SEC-003, SEC-004
+- [x] Log inspection: confirmed zero `Log.*`/`println` calls anywhere in `app/src/main` — nothing is logged today, so there is no existing leak of document text/passwords/tokens/private keys to fix. — SEC-003, SEC-004
+- [x] Key lifecycle hardening (PDF-008 follow-up): `BouncyCastlePkcs12SigningMaterialLoader.load` zeroes its password `CharArray` in a `finally` block instead of leaving the plaintext for the GC; `PasswordPromptDialog`/`Pkcs12PasswordDialog` switched from `rememberSaveable` to `remember` so a typed-but-not-yet-submitted password is never serialized into saved-instance-state. `AndroidKeystoreSigningIdentityManager` reviewed — already safe (hardware-backed key, never extracted). Two new tests in `Pkcs12SigningMaterialLoaderTest`. **Known gap**: the password `TextField`'s backing `String` itself can't be zeroed (JVM strings are immutable) — would need a custom char-array input to close fully; not attempted. **Not verified**: no JDK/Android SDK on this machine, so no `./gradlew` evidence and no real-device memory-dump confirmation. — SEC-003
 - [ ] Performance baselines (render/navigation/search/merge/upload) on representative devices — no real device/emulator available in this environment; must be measured on actual hardware before committing to budgets.
 
 ## Phase 7 — Release (not started)
