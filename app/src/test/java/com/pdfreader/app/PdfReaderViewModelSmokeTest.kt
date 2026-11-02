@@ -773,6 +773,71 @@ class PdfReaderViewModelSmokeTest {
         assertTrue("expected Failure but got $state", state is ExportState.Failure)
     }
 
+    @Test
+    fun openingAPasswordProtectedDocumentShowsThePasswordPrompt() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val viewModel = newViewModel(
+            context,
+            FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT, alwaysFailsWithPasswordProtected = true),
+            editEngine = FakePdfEditEngine(requiredPassword = "secret"),
+        )
+
+        assertTrue(viewModel.passwordRequired.value)
+        assertEquals(null, viewModel.passwordError.value)
+        assertTrue(
+            "expected Error state but got ${viewModel.uiState.value}",
+            viewModel.uiState.value is ReaderUiState.Error,
+        )
+    }
+
+    @Test
+    fun submittingTheWrongPasswordKeepsThePromptWithAnErrorMessage() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val viewModel = newViewModel(
+            context,
+            FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT, alwaysFailsWithPasswordProtected = true),
+            editEngine = FakePdfEditEngine(requiredPassword = "secret"),
+        )
+
+        viewModel.submitPassword("wrong")
+
+        assertTrue(viewModel.passwordRequired.value)
+        assertEquals("Incorrect password.", viewModel.passwordError.value)
+    }
+
+    /** PDF-013 / ADR-020: once the password is confirmed correct, rendering falls back to
+     * [PdfEditEngine.renderPage] — [PdfEngine] never succeeds for an encrypted document at
+     * this app's minSdk, correct password or not. */
+    @Test
+    fun submittingTheCorrectPasswordUsesTheFallbackRendererAndLoadsTheDocument() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val fakeEngine = FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT, alwaysFailsWithPasswordProtected = true)
+        val fakeEditEngine = FakePdfEditEngine(requiredPassword = "secret")
+        val viewModel = newViewModel(context, fakeEngine, editEngine = fakeEditEngine)
+
+        viewModel.submitPassword("secret")
+
+        assertTrue(!viewModel.passwordRequired.value)
+        val state = viewModel.uiState.value
+        assertTrue("expected Loaded state but got $state", state is ReaderUiState.Loaded)
+        assertEquals("the platform engine must never be used to render this document", 0, fakeEngine.renderCallCount)
+        assertTrue("expected the fallback renderer to have been used", fakeEditEngine.renderPageCallCount > 0)
+    }
+
+    @Test
+    fun cancelPasswordPromptDismissesIt() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val viewModel = newViewModel(
+            context,
+            FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT, alwaysFailsWithPasswordProtected = true),
+            editEngine = FakePdfEditEngine(requiredPassword = "secret"),
+        )
+
+        viewModel.cancelPasswordPrompt()
+
+        assertTrue(!viewModel.passwordRequired.value)
+    }
+
     private suspend fun awaitExportState(
         viewModel: ReaderViewModel,
         predicate: (ExportState) -> Boolean,
@@ -803,14 +868,22 @@ class PdfReaderViewModelSmokeTest {
         private val openSucceeds: Boolean = true,
         private val initialPageCount: Int = FIXTURE_PAGE_COUNT,
         private val appendSucceeds: Boolean = true,
+        /** Non-null simulates a password-protected document (PDF-013); [open] fails with
+         * [com.pdfreader.app.model.PdfOpenError.PasswordProtected] unless [PdfSource.password]
+         * matches exactly. */
+        private val requiredPassword: String? = null,
         var signatureVerificationResults: List<com.pdfreader.app.model.SignatureVerificationResult> = emptyList(),
     ) : PdfEditEngine {
         val addedAnnotations = mutableListOf<FakeNoteAnnotation>()
         private var pageCount = 0
+        var renderPageCallCount: Int = 0
 
         override suspend fun open(source: PdfSource): PdfOpenResult {
             if (!openSucceeds) {
                 return PdfOpenResult.Failure(com.pdfreader.app.model.PdfOpenError.Unexpected("fake open failure"))
+            }
+            if (requiredPassword != null && source.password != requiredPassword) {
+                return PdfOpenResult.Failure(com.pdfreader.app.model.PdfOpenError.PasswordProtected("locked"))
             }
             pageCount = initialPageCount
             return PdfOpenResult.Success(PdfDocumentHandle(pageCount = pageCount))
@@ -893,6 +966,12 @@ class PdfReaderViewModelSmokeTest {
 
         override suspend fun writeValidatedTempCopy(): File = File.createTempFile("fake-edit", ".pdf")
 
+        override suspend fun renderPage(pageIndex: Int, targetWidthPx: Int): Bitmap? {
+            renderPageCallCount++
+            if (pageIndex < 0 || pageIndex >= pageCount) return null
+            return Bitmap.createBitmap(FAKE_RENDER_WIDTH, FAKE_RENDER_HEIGHT, Bitmap.Config.ARGB_8888)
+        }
+
         override suspend fun close() {
             // no-op fake
         }
@@ -974,12 +1053,21 @@ class PdfReaderViewModelSmokeTest {
     }
 
     /** Stands in for [PlatformPdfRendererEngine] — see class-level doc for why. */
-    private class FakePdfEngine(private val pageCount: Int) : PdfEngine {
+    private class FakePdfEngine(
+        private val pageCount: Int,
+        /** Mirrors the real `android.graphics.pdf.PdfRenderer`'s actual behavior (PDF-013,
+         * planning/ADR.md ADR-020): it can never open a password-protected document at this
+         * app's minSdk, correct password or not — there is no way to supply one. */
+        private val alwaysFailsWithPasswordProtected: Boolean = false,
+    ) : PdfEngine {
         var lastOpenedSource: PdfSource? = null
         var renderCallCount: Int = 0
 
         override suspend fun open(source: PdfSource): PdfOpenResult {
             lastOpenedSource = source
+            if (alwaysFailsWithPasswordProtected) {
+                return PdfOpenResult.Failure(com.pdfreader.app.model.PdfOpenError.PasswordProtected("locked"))
+            }
             return PdfOpenResult.Success(PdfDocumentHandle(pageCount = pageCount))
         }
 

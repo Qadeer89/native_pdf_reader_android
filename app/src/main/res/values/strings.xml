@@ -24,6 +24,10 @@
     <string name="reader_export_success">Saved the annotated copy.</string>
     <string name="reader_print_action">Print</string>
     <string name="reader_print_preparing">Preparing to print…</string>
+    <string name="password_prompt_title">Password required</string>
+    <string name="password_prompt_label">Password</string>
+    <string name="password_prompt_confirm">Unlock</string>
+    <string name="password_prompt_cancel">Cancel</string>
     <string name="reader_page_menu_action">Page</string>
     <string name="reader_page_rotate">Rotate 90°</string>
     <string name="reader_page_delete">Delete this page</string>

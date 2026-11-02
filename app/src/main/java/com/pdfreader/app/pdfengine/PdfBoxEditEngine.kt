@@ -1,6 +1,7 @@
 package com.pdfreader.app.pdfengine
 
 import android.content.Context
+import android.graphics.Bitmap
 import com.pdfreader.app.model.PdfDocumentHandle
 import com.pdfreader.app.model.PdfOpenError
 import com.pdfreader.app.model.PdfOpenResult
@@ -14,6 +15,7 @@ import com.tom_roush.pdfbox.pdmodel.encryption.InvalidPasswordException
 import com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject
 import com.tom_roush.pdfbox.pdmodel.interactive.annotation.PDAnnotationText
 import com.tom_roush.pdfbox.pdmodel.interactive.digitalsignature.PDSignature
+import com.tom_roush.pdfbox.rendering.PDFRenderer
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -94,16 +96,23 @@ class PdfBoxEditEngine(
         }
     }
 
-    /** Loads [source] as a fresh [PDDocument]; throws on failure, same as `PDDocument.load`. */
+    /**
+     * Loads [source] as a fresh [PDDocument]; throws on failure, same as `PDDocument.load`.
+     * [PdfSource.password] (PDF-013) is passed straight through — `null` behaves exactly
+     * like the password-less overload, so this is a no-op for the overwhelming majority of
+     * documents that aren't encrypted.
+     */
     private fun loadDocument(source: PdfSource): PDDocument = when (source) {
         is PdfSource.LocalFile -> {
             if (!source.file.exists()) throw FileNotFoundException(source.file.path)
-            PDDocument.load(source.file)
+            if (source.password != null) PDDocument.load(source.file, source.password) else PDDocument.load(source.file)
         }
         is PdfSource.ContentUri -> {
             val input = context.contentResolver.openInputStream(source.uri)
                 ?: throw FileNotFoundException(source.uri.toString())
-            input.use { PDDocument.load(it) }
+            input.use {
+                if (source.password != null) PDDocument.load(it, source.password) else PDDocument.load(it)
+            }
         }
     }
 
@@ -458,6 +467,26 @@ class PdfBoxEditEngine(
                 tempFile
             } catch (e: Exception) {
                 tempFile.delete()
+                null
+            }
+        }
+    }
+
+    /**
+     * PDF-013 fallback path only (see the interface doc comment and planning/ADR.md
+     * ADR-020) — a fresh [PDFRenderer] per call, since this is only ever invoked for a
+     * password-protected document's occasional page render, not the main per-page-view
+     * hot path [PdfEngine] normally serves.
+     */
+    override suspend fun renderPage(pageIndex: Int, targetWidthPx: Int): Bitmap? = withContext(ioDispatcher) {
+        lock.withLock {
+            val doc = document ?: return@withContext null
+            if (pageIndex < 0 || pageIndex >= doc.numberOfPages) return@withContext null
+            val pageWidthPoints = doc.getPage(pageIndex).mediaBox.width
+            val scale = targetWidthPx.coerceAtLeast(1) / pageWidthPoints
+            try {
+                PDFRenderer(doc).renderImage(pageIndex, scale)
+            } catch (e: IOException) {
                 null
             }
         }

@@ -130,9 +130,35 @@ class ReaderViewModel(
 
     private var pendingInsertUri: Uri? = null
 
+    /**
+     * True once opening a document failed with [PdfOpenError.PasswordProtected] (PDF-013) —
+     * the prompt stays up until [submitPassword] succeeds or [cancelPasswordPrompt] is
+     * called. [_passwordError] is null on the very first prompt and set to a message once a
+     * submitted password itself was wrong, distinguishing "needs a password" from "that
+     * wasn't it."
+     */
+    private val _passwordRequired = MutableStateFlow(false)
+    val passwordRequired: StateFlow<Boolean> = _passwordRequired.asStateFlow()
+
+    private val _passwordError = MutableStateFlow<String?>(null)
+    val passwordError: StateFlow<String?> = _passwordError.asStateFlow()
+
+    private var pendingPasswordSource: PdfSource? = null
+    private var pendingPasswordMetadata: DocumentMetadata? = null
+    private var pendingPasswordRecentUri: String? = null
+
     private var pageCount: Int = 0
     private var currentPageIndex: Int = 0
     private var editEngineAvailable: Boolean = false
+
+    /**
+     * True for the lifetime of a document that [pdfEditEngine] could open (with the right
+     * password) but `android.graphics.pdf.PdfRenderer` (behind [pdfEngine]) could never open
+     * at all, since it has no way to accept a password at this app's minSdk — see
+     * planning/ADR.md ADR-020. While true, [pageBitmap] renders through [pdfEditEngine]
+     * instead of [pdfEngine]; every other document is unaffected.
+     */
+    private var usingFallbackRenderer: Boolean = false
 
     /** Normalized marker positions per page index, this session only (not read back from the file). */
     private val annotationMarkersByPage = mutableMapOf<Int, MutableList<Pair<Float, Float>>>()
@@ -610,7 +636,11 @@ class ReaderViewModel(
         val key = "$pageIndex@$widthPx"
         pageCacheLock.withLock { pageCache[key] }?.let { return it }
 
-        val rendered = pdfEngine.renderPage(pageIndex, widthPx) ?: return null
+        val rendered = if (usingFallbackRenderer) {
+            pdfEditEngine.renderPage(pageIndex, widthPx)
+        } else {
+            pdfEngine.renderPage(pageIndex, widthPx)
+        } ?: return null
         pageCacheLock.withLock { pageCache[key] = rendered }
         return rendered
     }
@@ -629,31 +659,87 @@ class ReaderViewModel(
         pageRotationsDegrees.clear()
         signatureStampsByPage.clear()
         _pageOpMessage.value = null
-        editEngineAvailable = pdfEditEngine.open(source) is PdfOpenResult.Success
+        usingFallbackRenderer = false
+        pendingPasswordSource = null
+        pendingPasswordMetadata = null
+        pendingPasswordRecentUri = null
+        _passwordRequired.value = false
+        _passwordError.value = null
+
+        val editOpenResult = pdfEditEngine.open(source)
+        editEngineAvailable = editOpenResult is PdfOpenResult.Success
         // Computed once per document open, not staged/session-only like the edit features
         // above — this reports what's actually already in the file (PDF-008 "validate").
         signatureVerifications = if (editEngineAvailable) pdfEditEngine.verifySignatures() else emptyList()
 
-        when (val result = pdfEngine.open(source)) {
-            is PdfOpenResult.Failure -> {
-                pageCount = 0
-                currentPageIndex = 0
-                _uiState.value = ReaderUiState.Error(result.error)
-            }
-            is PdfOpenResult.Success -> {
-                pageCount = result.document.pageCount
+        val engineResult = pdfEngine.open(source)
+        when {
+            engineResult is PdfOpenResult.Success -> {
+                pageCount = engineResult.document.pageCount
                 currentPageIndex = 0
                 renderAndPublish(0, metadata)
-                if (recentUriToRecord != null) {
-                    recentDocumentsRepository.recordOpened(
-                        uri = recentUriToRecord,
-                        displayName = metadata.displayName,
-                        pageCount = pageCount,
-                        openedAtEpochMillis = clock(),
-                    )
-                }
+                recordRecentIfNeeded(recentUriToRecord, metadata)
+            }
+            // android.graphics.pdf.PdfRenderer has no way to supply a password at this
+            // app's minSdk, so it fails here even with the right password — but if the edit
+            // engine (which does support passwords) already opened the document, that
+            // password was correct. Fall back to its own rendering (ADR-020) instead of
+            // treating this as an open failure.
+            editOpenResult is PdfOpenResult.Success &&
+                engineResult is PdfOpenResult.Failure &&
+                engineResult.error is PdfOpenError.PasswordProtected -> {
+                usingFallbackRenderer = true
+                pageCount = editOpenResult.document.pageCount
+                currentPageIndex = 0
+                renderAndPublish(0, metadata)
+                recordRecentIfNeeded(recentUriToRecord, metadata)
+            }
+            engineResult is PdfOpenResult.Failure && engineResult.error is PdfOpenError.PasswordProtected -> {
+                pageCount = 0
+                currentPageIndex = 0
+                pendingPasswordSource = source
+                pendingPasswordMetadata = metadata
+                pendingPasswordRecentUri = recentUriToRecord
+                // A password was already tried (and the edit engine, which does support
+                // passwords, rejected it too) vs. this being the first prompt for this file.
+                _passwordError.value = if (source.password != null) "Incorrect password." else null
+                _passwordRequired.value = true
+                _uiState.value = ReaderUiState.Error(engineResult.error)
+            }
+            else -> {
+                pageCount = 0
+                currentPageIndex = 0
+                _uiState.value = ReaderUiState.Error((engineResult as PdfOpenResult.Failure).error)
             }
         }
+    }
+
+    private suspend fun recordRecentIfNeeded(recentUriToRecord: String?, metadata: DocumentMetadata) {
+        if (recentUriToRecord == null) return
+        recentDocumentsRepository.recordOpened(
+            uri = recentUriToRecord,
+            displayName = metadata.displayName,
+            pageCount = pageCount,
+            openedAtEpochMillis = clock(),
+        )
+    }
+
+    /** Retries the document that triggered [passwordRequired] with a user-entered password (PDF-013). */
+    fun submitPassword(password: String) {
+        val source = pendingPasswordSource ?: return
+        val metadata = pendingPasswordMetadata ?: return
+        val recentUri = pendingPasswordRecentUri
+        viewModelScope.launch {
+            openSource(source.withPassword(password), metadata, recentUri)
+        }
+    }
+
+    fun cancelPasswordPrompt() {
+        pendingPasswordSource = null
+        pendingPasswordMetadata = null
+        pendingPasswordRecentUri = null
+        _passwordRequired.value = false
+        _passwordError.value = null
     }
 
     private suspend fun renderAndPublish(pageIndex: Int, metadata: DocumentMetadata? = null) {

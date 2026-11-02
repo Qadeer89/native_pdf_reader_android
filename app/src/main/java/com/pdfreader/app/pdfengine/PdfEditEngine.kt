@@ -1,5 +1,6 @@
 package com.pdfreader.app.pdfengine
 
+import android.graphics.Bitmap
 import com.pdfreader.app.model.PdfOpenResult
 import com.pdfreader.app.model.PdfSource
 import com.pdfreader.app.model.SignatureVerificationResult
@@ -141,6 +142,18 @@ interface PdfEditEngine {
      * destination Uri from `ACTION_CREATE_DOCUMENT`) and deleting it afterwards.
      */
     suspend fun writeValidatedTempCopy(): File?
+
+    /**
+     * Renders [pageIndex] (0-based) at approximately [targetWidthPx] wide, using this
+     * engine's own rendering rather than [PdfEngine]'s. This exists for exactly one case
+     * (PDF-013, see planning/ADR.md ADR-020): a password-protected document that this
+     * engine can open (given the right password) but `android.graphics.pdf.PdfRenderer`
+     * can never open at all, since it has no way to supply a password at this app's
+     * minSdk. [ReaderViewModel] only calls this as a fallback — every other document still
+     * renders exclusively through [PdfEngine], unchanged. Returns null if no document is
+     * open or the page index is out of range.
+     */
+    suspend fun renderPage(pageIndex: Int, targetWidthPx: Int): Bitmap?
 
     /** Releases any resources held by the currently open document, if any. */
     suspend fun close()

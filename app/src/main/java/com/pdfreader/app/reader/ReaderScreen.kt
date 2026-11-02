@@ -95,6 +95,8 @@ fun ReaderScreen(
     val signingIdentities by viewModel.signingIdentities.collectAsState()
     val pkcs12AwaitingPassword by viewModel.pkcs12AwaitingPassword.collectAsState()
     val insertAwaitingPosition by viewModel.insertAwaitingPosition.collectAsState()
+    val passwordRequired by viewModel.passwordRequired.collectAsState()
+    val passwordError by viewModel.passwordError.collectAsState()
     var showRecentMenu by remember { mutableStateOf(false) }
     var showPageMenu by remember { mutableStateOf(false) }
     var showSignMenu by remember { mutableStateOf(false) }
@@ -442,6 +444,13 @@ fun ReaderScreen(
                 pageCount = loadedState.pageCount,
                 onDismiss = { viewModel.cancelInsert() },
                 onInsert = { targetPageNumber -> viewModel.insertDocumentAt(targetPageNumber) },
+            )
+        }
+        if (passwordRequired) {
+            PasswordPromptDialog(
+                errorMessage = passwordError,
+                onDismiss = { viewModel.cancelPasswordPrompt() },
+                onSubmit = { password -> viewModel.submitPassword(password) },
             )
         }
     }
@@ -1022,6 +1031,51 @@ private fun CreateSigningIdentityDialog(onDismiss: () -> Unit, onCreate: (displa
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.signature_cancel)) }
+        },
+    )
+}
+
+/**
+ * Prompts for the password of a document that failed to open with
+ * [com.pdfreader.app.model.PdfOpenError.PasswordProtected] (PDF-013). [errorMessage] is
+ * null for the first prompt and set to a specific message once a previously submitted
+ * password turned out to be wrong, so the user isn't just shown the same blank field twice
+ * with no feedback.
+ */
+@Composable
+private fun PasswordPromptDialog(errorMessage: String?, onDismiss: () -> Unit, onSubmit: (password: String) -> Unit) {
+    var password by rememberSaveable { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.password_prompt_title)) },
+        text = {
+            androidx.compose.foundation.layout.Column {
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    singleLine = true,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    label = { Text(stringResource(R.string.password_prompt_label)) },
+                    isError = errorMessage != null,
+                )
+                if (errorMessage != null) {
+                    Text(
+                        text = errorMessage,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = password.isNotEmpty(), onClick = { onSubmit(password) }) {
+                Text(stringResource(R.string.password_prompt_confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.password_prompt_cancel)) }
         },
     )
 }

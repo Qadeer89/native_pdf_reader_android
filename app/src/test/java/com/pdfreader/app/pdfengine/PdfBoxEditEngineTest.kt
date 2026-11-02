@@ -395,4 +395,53 @@ class PdfBoxEditEngineTest {
             sourceFile.delete()
         }
     }
+
+    /**
+     * PDF-013: a document encrypted with [StandardProtectionPolicy] can only be opened with
+     * the exact user password — wrong or missing passwords fail with
+     * [com.pdfreader.app.model.PdfOpenError.PasswordProtected], not a generic error. Once
+     * opened, [PdfEditEngine.renderPage] (ADR-020's fallback renderer, since
+     * `android.graphics.pdf.PdfRenderer` can never open this file at all) produces a real
+     * bitmap from the decrypted document.
+     */
+    @Test
+    fun opensAPasswordProtectedDocumentOnlyWithTheCorrectPasswordAndRendersViaFallback() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val engine = PdfBoxEditEngine(context, ioDispatcher = Dispatchers.Unconfined)
+        val sourceFile = fixtureFile()
+        val encryptedFile = File.createTempFile("pdfbox-edit-engine-test-encrypted", ".pdf")
+        try {
+            PDDocument.load(sourceFile).use { doc ->
+                val policy = com.tom_roush.pdfbox.pdmodel.encryption.StandardProtectionPolicy(
+                    "owner-secret",
+                    "user-secret",
+                    com.tom_roush.pdfbox.pdmodel.encryption.AccessPermission(),
+                )
+                doc.protect(policy)
+                doc.save(encryptedFile)
+            }
+
+            val noPasswordResult = engine.open(PdfSource.LocalFile(encryptedFile))
+            assertTrue("expected a Failure but got $noPasswordResult", noPasswordResult is PdfOpenResult.Failure)
+            assertTrue(
+                (noPasswordResult as PdfOpenResult.Failure).error is com.pdfreader.app.model.PdfOpenError.PasswordProtected,
+            )
+
+            val wrongPasswordResult = engine.open(PdfSource.LocalFile(encryptedFile, password = "wrong"))
+            assertTrue("expected a Failure but got $wrongPasswordResult", wrongPasswordResult is PdfOpenResult.Failure)
+
+            val correctPasswordResult = engine.open(PdfSource.LocalFile(encryptedFile, password = "user-secret"))
+            assertTrue("expected Success but got $correctPasswordResult", correctPasswordResult is PdfOpenResult.Success)
+            assertEquals(1, (correctPasswordResult as PdfOpenResult.Success).document.pageCount)
+
+            val bitmap = engine.renderPage(0, 200)
+            assertTrue("expected a rendered bitmap but got null", bitmap != null)
+            assertTrue("rendered bitmap should have a positive width", bitmap!!.width > 0)
+
+            engine.close()
+        } finally {
+            sourceFile.delete()
+            encryptedFile.delete()
+        }
+    }
 }
