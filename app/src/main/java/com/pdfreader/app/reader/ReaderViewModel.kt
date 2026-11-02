@@ -121,6 +121,9 @@ class ReaderViewModel(
     private val _extractState = MutableStateFlow<ExportState>(ExportState.Idle)
     val extractState: StateFlow<ExportState> = _extractState.asStateFlow()
 
+    private val _printState = MutableStateFlow<PrintState>(PrintState.Idle)
+    val printState: StateFlow<PrintState> = _printState.asStateFlow()
+
     /** True once a PDF has been picked to insert, awaiting its target position (PDF-006). */
     private val _insertAwaitingPosition = MutableStateFlow(false)
     val insertAwaitingPosition: StateFlow<Boolean> = _insertAwaitingPosition.asStateFlow()
@@ -269,6 +272,30 @@ class ReaderViewModel(
 
     fun acknowledgeExportState() {
         _exportState.value = ExportState.Idle
+    }
+
+    /**
+     * Prepares a validated temp copy (staged edits included, same as [exportAnnotatedCopy])
+     * for the Android print framework to stream to whatever printer/output the user picks
+     * in the system print dialog (PDF-010). The caller owns [PrintState.Ready.file] once
+     * this resolves — it must delete it once the print job is handed off or fails, since
+     * there is no destination picker step here to drive that cleanup.
+     */
+    fun requestPrint(documentName: String) {
+        if (!editEngineAvailable) return
+        viewModelScope.launch {
+            _printState.value = PrintState.Preparing
+            val tempFile = pdfEditEngine.writeValidatedTempCopy()
+            _printState.value = if (tempFile != null) {
+                PrintState.Ready(tempFile, documentName)
+            } else {
+                PrintState.Failure("Could not prepare this document for printing.")
+            }
+        }
+    }
+
+    fun acknowledgePrintState() {
+        _printState.value = PrintState.Idle
     }
 
     fun acknowledgePageOpMessage() {

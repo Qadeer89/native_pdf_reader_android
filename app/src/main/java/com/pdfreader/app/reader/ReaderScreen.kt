@@ -88,6 +88,7 @@ fun ReaderScreen(
     val exportState by viewModel.exportState.collectAsState()
     val signState by viewModel.signState.collectAsState()
     val extractState by viewModel.extractState.collectAsState()
+    val printState by viewModel.printState.collectAsState()
     val pageOpMessage by viewModel.pageOpMessage.collectAsState()
     val recentDocuments by viewModel.recentDocuments.collectAsState()
     val savedSignatures by viewModel.savedSignatures.collectAsState()
@@ -159,6 +160,14 @@ fun ReaderScreen(
                                 },
                             ) {
                                 Text(stringResource(R.string.reader_export_action))
+                            }
+                            TextButton(
+                                onClick = {
+                                    val baseName = loaded.documentMetadata?.displayName ?: "document.pdf"
+                                    viewModel.requestPrint(baseName)
+                                },
+                            ) {
+                                Text(stringResource(R.string.reader_print_action))
                             }
                             Box {
                                 TextButton(onClick = { showPageMenu = true }) {
@@ -366,6 +375,7 @@ fun ReaderScreen(
                 ExportStateBanner(exportState = exportState, onDismiss = viewModel::acknowledgeExportState)
                 SignStateBanner(signState = signState, onDismiss = viewModel::acknowledgeSignState)
                 ExtractStateBanner(extractState = extractState, onDismiss = viewModel::acknowledgeExtractState)
+                PrintStateBanner(printState = printState, onDismiss = viewModel::acknowledgePrintState)
             }
         }
 
@@ -486,6 +496,24 @@ private fun ExtractStateBanner(extractState: ExportState, modifier: Modifier = M
         is ExportState.Failure -> {
             Snackbar(modifier = modifier, action = { TextButton(onClick = onDismiss) { Text("OK") } }) {
                 Text(extractState.reason)
+            }
+        }
+    }
+}
+
+/**
+ * [PrintState.Ready] is intentionally silent here — by the time it arrives, the system
+ * print dialog is about to appear (or already has), so a snackbar for it would just be
+ * noise. Only the preparing/failure states need feedback.
+ */
+@Composable
+private fun PrintStateBanner(printState: PrintState, modifier: Modifier = Modifier, onDismiss: () -> Unit) {
+    when (printState) {
+        is PrintState.Idle, is PrintState.Ready -> Unit
+        is PrintState.Preparing -> Snackbar(modifier = modifier) { Text(stringResource(R.string.reader_print_preparing)) }
+        is PrintState.Failure -> {
+            Snackbar(modifier = modifier, action = { TextButton(onClick = onDismiss) { Text("OK") } }) {
+                Text(printState.reason)
             }
         }
     }

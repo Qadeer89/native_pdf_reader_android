@@ -4,10 +4,14 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.print.PrintManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.pdfreader.app.data.documents.ContentResolverDestinationWriter
@@ -19,6 +23,8 @@ import com.pdfreader.app.data.signatures.LocalFileSignatureRepository
 import com.pdfreader.app.pdfengine.AssetPdfCopier
 import com.pdfreader.app.pdfengine.PdfBoxEditEngine
 import com.pdfreader.app.pdfengine.PlatformPdfRendererEngine
+import com.pdfreader.app.print.PdfPrintDocumentAdapter
+import com.pdfreader.app.reader.PrintState
 import com.pdfreader.app.reader.ReaderScreen
 import com.pdfreader.app.reader.ReaderViewModel
 import com.pdfreader.app.signing.AndroidKeystoreSigningIdentityManager
@@ -150,6 +156,17 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             PdfReaderTheme {
+                val printState by readerViewModel.printState.collectAsState()
+                LaunchedEffect(printState) {
+                    val ready = printState as? PrintState.Ready ?: return@LaunchedEffect
+                    val printManager = getSystemService(PrintManager::class.java)
+                    printManager.print(
+                        ready.documentName,
+                        PdfPrintDocumentAdapter(ready.file, ready.documentName),
+                        null,
+                    )
+                    readerViewModel.acknowledgePrintState()
+                }
                 ReaderScreen(
                     viewModel = readerViewModel,
                     onOpenDocumentClick = { openDocumentLauncher.launch(arrayOf("application/pdf")) },

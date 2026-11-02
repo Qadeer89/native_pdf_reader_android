@@ -22,6 +22,8 @@
     <string name="reader_export_action">Export copy</string>
     <string name="reader_export_saving">Preparing your annotated copy…</string>
     <string name="reader_export_success">Saved the annotated copy.</string>
+    <string name="reader_print_action">Print</string>
+    <string name="reader_print_preparing">Preparing to print…</string>
     <string name="reader_page_menu_action">Page</string>
     <string name="reader_page_rotate">Rotate 90°</string>
     <string name="reader_page_delete">Delete this page</string>
