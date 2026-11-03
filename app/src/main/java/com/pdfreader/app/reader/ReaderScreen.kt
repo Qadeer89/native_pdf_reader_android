@@ -49,6 +49,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
@@ -71,6 +72,15 @@ import com.pdfreader.app.signing.SigningIdentity
 private const val MIN_ZOOM_SCALE = 1f
 private const val MAX_ZOOM_SCALE = 5f
 private const val MARKER_RADIUS_DP = 6f
+
+/**
+ * Auto-sizing mode for the current page in single-page layout (PDF-002). [WIDTH] scales the
+ * page to the container's width (may overflow vertically, matching this app's previous
+ * fixed-approximation behavior); [PAGE] scales to fit the whole page within the container,
+ * letterboxing if the aspect ratios differ. Purely a display concern — not plumbed into
+ * [ReaderViewModel], which renders the same bitmap either way.
+ */
+private enum class PageFitMode { WIDTH, PAGE }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -116,6 +126,7 @@ fun ReaderScreen(
     var showAttachmentsDialog by remember { mutableStateOf(false) }
     var annotateMode by rememberSaveable { mutableStateOf(false) }
     var signatureMode by rememberSaveable { mutableStateOf(false) }
+    var fitMode by rememberSaveable { mutableStateOf(PageFitMode.WIDTH) }
     var pendingNoteTap by remember { mutableStateOf<Pair<Float, Float>?>(null) }
 
     Scaffold(
@@ -140,6 +151,21 @@ fun ReaderScreen(
                                 stringResource(R.string.reader_mode_single)
                             }
                             Text(modeLabel)
+                        }
+                        if (layoutMode == PageLayoutMode.SINGLE) {
+                            TextButton(
+                                onClick = {
+                                    fitMode = if (fitMode == PageFitMode.WIDTH) PageFitMode.PAGE else PageFitMode.WIDTH
+                                },
+                            ) {
+                                Text(
+                                    if (fitMode == PageFitMode.WIDTH) {
+                                        stringResource(R.string.reader_fit_page)
+                                    } else {
+                                        stringResource(R.string.reader_fit_width)
+                                    },
+                                )
+                            }
                         }
                         if (loaded.signatureVerifications.isNotEmpty()) {
                             TextButton(onClick = { showSignatureStatusDialog = true }) {
@@ -368,6 +394,7 @@ fun ReaderScreen(
                             if (layoutMode == PageLayoutMode.SINGLE) {
                                 ZoomablePdfPage(
                                     state = current,
+                                    fitMode = fitMode,
                                     tapModeActive = annotateMode || signatureMode,
                                     showAnnotationMarkers = annotateMode,
                                     onTap = { xFraction, yFraction ->
@@ -861,25 +888,29 @@ private fun RecentDocumentsMenu(
 }
 
 /**
- * Pinch-to-zoom and pan on the current page (PDF-002). Zoom resets when the page changes.
- * While [tapModeActive] is true (annotate mode, PDF-005, or signature-placement mode,
- * PDF-007), zoom/pan is disabled in favor of tap-to-place ([onTap], called with normalized
- * 0f..1f coordinates) — kept as distinct modes rather than trying to reconcile a tap gesture
- * with a simultaneous pinch/pan gesture. [showAnnotationMarkers] gates only the note-marker
- * overlay (matching the existing annotate-mode-only visibility); placed signature stamps are
- * always shown when present, since — unlike a transient marker — they represent a staged
- * edit the user would otherwise think had vanished when leaving placement mode.
+ * Pinch-to-zoom and pan on the current page (PDF-002). Zoom resets when the page or
+ * [fitMode] changes. While [tapModeActive] is true (annotate mode, PDF-005, or
+ * signature-placement mode, PDF-007), zoom/pan is disabled in favor of tap-to-place
+ * ([onTap], called with normalized 0f..1f coordinates) — kept as distinct modes rather than
+ * trying to reconcile a tap gesture with a simultaneous pinch/pan gesture. [fitMode] controls
+ * the base (pre-pinch) size via [Image]'s own `contentScale`, so it adapts to the actual
+ * container size rather than relying on the render width coincidentally matching the screen.
+ * [showAnnotationMarkers] gates only the note-marker overlay (matching the existing
+ * annotate-mode-only visibility); placed signature stamps are always shown when present,
+ * since — unlike a transient marker — they represent a staged edit the user would otherwise
+ * think had vanished when leaving placement mode.
  */
 @Composable
 private fun ZoomablePdfPage(
     state: ReaderUiState.Loaded,
+    fitMode: PageFitMode,
     tapModeActive: Boolean,
     showAnnotationMarkers: Boolean,
     onTap: (xFraction: Float, yFraction: Float) -> Unit,
 ) {
-    var scale by rememberSaveable(state.pageIndex) { mutableStateOf(MIN_ZOOM_SCALE) }
-    var offsetX by rememberSaveable(state.pageIndex) { mutableStateOf(0f) }
-    var offsetY by rememberSaveable(state.pageIndex) { mutableStateOf(0f) }
+    var scale by rememberSaveable(state.pageIndex, fitMode) { mutableStateOf(MIN_ZOOM_SCALE) }
+    var offsetX by rememberSaveable(state.pageIndex, fitMode) { mutableStateOf(0f) }
+    var offsetY by rememberSaveable(state.pageIndex, fitMode) { mutableStateOf(0f) }
     var layoutSize by remember { mutableStateOf(IntSize.Zero) }
 
     val transformState = rememberTransformableState { zoomChange, panChange, _ ->
@@ -888,15 +919,39 @@ private fun ZoomablePdfPage(
         offsetY += panChange.y
     }
 
-    Box {
+    // The displayed page rect within the container, honouring `fitMode`'s contentScale —
+    // needed so annotation markers/signature stamps/taps (all normalized 0f..1f against the
+    // *page*, not the container) land correctly even when PAGE fit mode letterboxes the page
+    // inside a container of a different aspect ratio.
+    val bitmapWidth = state.pageBitmap.width.toFloat()
+    val bitmapHeight = state.pageBitmap.height.toFloat()
+    val displayScale = if (layoutSize.width > 0 && layoutSize.height > 0 && bitmapWidth > 0 && bitmapHeight > 0) {
+        val widthScale = layoutSize.width / bitmapWidth
+        if (fitMode == PageFitMode.PAGE) minOf(widthScale, layoutSize.height / bitmapHeight) else widthScale
+    } else {
+        0f
+    }
+    val displayWidth = bitmapWidth * displayScale
+    val displayHeight = bitmapHeight * displayScale
+    val displayOffsetX = (layoutSize.width - displayWidth) / 2f
+    val displayOffsetY = (layoutSize.height - displayHeight) / 2f
+
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         val imageModifier = Modifier
+            .fillMaxSize()
             .onSizeChanged { layoutSize = it }
             .let { base ->
                 if (tapModeActive) {
-                    base.pointerInput(state.pageIndex) {
+                    // Keyed on everything the tap-mapping math below reads (not just
+                    // pageIndex) so this gesture detector restarts — rather than closing
+                    // over stale display geometry — whenever fit mode or the container size
+                    // changes.
+                    base.pointerInput(state.pageIndex, fitMode, layoutSize) {
                         detectTapGestures { offset ->
-                            if (layoutSize.width > 0 && layoutSize.height > 0) {
-                                onTap(offset.x / layoutSize.width, offset.y / layoutSize.height)
+                            if (displayWidth > 0 && displayHeight > 0) {
+                                val xFraction = ((offset.x - displayOffsetX) / displayWidth).coerceIn(0f, 1f)
+                                val yFraction = ((offset.y - displayOffsetY) / displayHeight).coerceIn(0f, 1f)
+                                onTap(xFraction, yFraction)
                             }
                         }
                     }
@@ -916,30 +971,34 @@ private fun ZoomablePdfPage(
         Image(
             bitmap = remember(state.pageBitmap) { state.pageBitmap.asImageBitmap() },
             contentDescription = stringResource(R.string.reader_page_label, state.pageIndex + 1, state.pageCount),
+            contentScale = if (fitMode == PageFitMode.PAGE) ContentScale.Fit else ContentScale.FillWidth,
             modifier = imageModifier,
         )
 
-        if (showAnnotationMarkers && layoutSize.width > 0) {
+        if (showAnnotationMarkers && displayWidth > 0) {
             Canvas(modifier = Modifier.matchParentSize()) {
                 val radiusPx = MARKER_RADIUS_DP * density
                 state.annotationMarkers.forEach { (xFraction, yFraction) ->
                     drawCircle(
                         color = Color.Red,
                         radius = radiusPx,
-                        center = Offset(xFraction * size.width, yFraction * size.height),
+                        center = Offset(displayOffsetX + xFraction * displayWidth, displayOffsetY + yFraction * displayHeight),
                     )
                 }
             }
         }
 
-        if (state.signatureStamps.isNotEmpty() && layoutSize.width > 0) {
+        if (state.signatureStamps.isNotEmpty() && displayWidth > 0) {
             Canvas(modifier = Modifier.matchParentSize()) {
                 state.signatureStamps.forEach { stamp ->
-                    val widthPx = stamp.widthFraction * size.width
+                    val widthPx = stamp.widthFraction * displayWidth
                     val heightPx = widthPx * stamp.bitmap.height / stamp.bitmap.width.toFloat()
                     drawImage(
                         image = stamp.bitmap.asImageBitmap(),
-                        dstOffset = IntOffset((stamp.xFraction * size.width).toInt(), (stamp.yFraction * size.height).toInt()),
+                        dstOffset = IntOffset(
+                            (displayOffsetX + stamp.xFraction * displayWidth).toInt(),
+                            (displayOffsetY + stamp.yFraction * displayHeight).toInt(),
+                        ),
                         dstSize = IntSize(widthPx.toInt().coerceAtLeast(1), heightPx.toInt().coerceAtLeast(1)),
                     )
                 }

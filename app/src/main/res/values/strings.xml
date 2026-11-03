@@ -9,6 +9,8 @@
     <string name="reader_next_page">Next page</string>
     <string name="reader_mode_continuous">Continuous</string>
     <string name="reader_mode_single">Single page</string>
+    <string name="reader_fit_width">Fit width</string>
+    <string name="reader_fit_page">Fit page</string>
     <string name="reader_recent_action">Recent</string>
     <string name="reader_recent_empty">No recent documents</string>
     <string name="reader_recent_clear">Clear history</string>
