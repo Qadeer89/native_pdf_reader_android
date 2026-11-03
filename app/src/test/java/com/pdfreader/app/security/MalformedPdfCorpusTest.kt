@@ -190,6 +190,74 @@ class MalformedPdfCorpusTest {
     }
 
     /**
+     * Hardening (backlog item 11): a `/Pages` node that *claims* a far larger `/Count` than
+     * its actual `/Kids` array holds — a cheap way for a hostile document to try to get a
+     * naive caller to loop/allocate based on the untrustworthy declared count rather than the
+     * real page list. `PdfBoxEditEngine` only ever iterates `document.pages`/`numberOfPages`
+     * (PDFBox's own resolved page list), never trusts a raw `/Count` value itself, so this
+     * should open safely and report the *actual* (small) page count, not the claimed one.
+     */
+    @Test
+    fun documentClaimingFarMorePagesThanItActuallyHasOpensSafelyWithTheRealCount() = runTest {
+        val malicious = """
+            %PDF-1.4
+            1 0 obj
+            << /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>
+            endobj
+            2 0 obj
+            << /Type /Pages /Kids [1 0 R] /Count 50000000 >>
+            endobj
+            3 0 obj
+            << /Type /Catalog /Pages 2 0 R >>
+            endobj
+            trailer
+            << /Root 3 0 R >>
+            %%EOF
+        """.trimIndent().toByteArray()
+        val file = fileOf(malicious)
+        try {
+            val result = assertOpensWithoutHangingOrThrowing(file)
+            if (result is PdfOpenResult.Success) {
+                assertTrue(
+                    "expected the real (small) page count, not the claimed /Count, got ${result.document.pageCount}",
+                    result.document.pageCount < 1000,
+                )
+            }
+        } finally {
+            file.delete()
+        }
+    }
+
+    /**
+     * Hardening (backlog item 11): a deeply nested array (a cheap recursion-depth bomb some
+     * parsers handle with naive recursive descent, risking a `StackOverflowError`). Only
+     * confirms it doesn't hang or throw past [PdfOpenResult] — not a performance claim.
+     */
+    @Test
+    fun deeplyNestedArrayDoesNotHangOrThrowOrStackOverflow() = runTest {
+        val depth = 20_000
+        val nestedArray = "[".repeat(depth) + "]".repeat(depth)
+        val malicious = """
+            %PDF-1.4
+            1 0 obj
+            << /Type /Pages /Kids [] /Count 0 /Dummy $nestedArray >>
+            endobj
+            2 0 obj
+            << /Type /Catalog /Pages 1 0 R >>
+            endobj
+            trailer
+            << /Root 2 0 R >>
+            %%EOF
+        """.trimIndent().toByteArray()
+        val file = fileOf(malicious)
+        try {
+            assertOpensWithoutHangingOrThrowing(file)
+        } finally {
+            file.delete()
+        }
+    }
+
+    /**
      * A document that opens successfully but has zero pages — downstream page-indexed
      * operations (annotate/rotate/stamp) must report failure cleanly, never crash, when
      * given an out-of-range index against such a document.

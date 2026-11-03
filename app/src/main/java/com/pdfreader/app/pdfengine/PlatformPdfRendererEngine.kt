@@ -60,6 +60,16 @@ class PlatformPdfRendererEngine(
                     }
                 }
 
+                // Hardening (backlog item 11): same oversized-source guard as
+                // PdfBoxEditEngine — fail fast instead of risking an OOM while PdfRenderer
+                // parses an enormous file. Checked via the fd's own reported size, which
+                // covers both source kinds in one place.
+                val sizeBytes = fd.statSize
+                if (sizeBytes > MAX_SOURCE_FILE_SIZE_BYTES) {
+                    fd.close()
+                    return@withContext PdfOpenResult.Failure(PdfOpenError.TooLarge(sizeBytes))
+                }
+
                 val opened = PdfRenderer(fd)
                 fileDescriptor = fd
                 renderer = opened
@@ -88,12 +98,37 @@ class PlatformPdfRendererEngine(
                 val scale = widthPx.toFloat() / page.width.toFloat()
                 val heightPx = (page.height * scale).toInt().coerceAtLeast(1)
 
-                val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
-                bitmap.eraseColor(Color.WHITE)
-                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                bitmap
+                // Hardening (backlog item 11): a maliciously crafted PDF can declare an
+                // extreme page aspect ratio (e.g. 1pt wide, a million pt tall) so that even a
+                // modest requested width maps to a many-gigabyte bitmap at render time — an
+                // easy OOM/DoS otherwise. Clamp both dimensions to MAX_BITMAP_DIMENSION_PX,
+                // scaling down proportionally so the clamp can't distort the page.
+                val clampScale = minOf(
+                    1f,
+                    MAX_BITMAP_DIMENSION_PX.toFloat() / widthPx.toFloat(),
+                    MAX_BITMAP_DIMENSION_PX.toFloat() / heightPx.toFloat(),
+                )
+                val safeWidthPx = (widthPx * clampScale).toInt().coerceAtLeast(1)
+                val safeHeightPx = (heightPx * clampScale).toInt().coerceAtLeast(1)
+
+                try {
+                    val bitmap = Bitmap.createBitmap(safeWidthPx, safeHeightPx, Bitmap.Config.ARGB_8888)
+                    bitmap.eraseColor(Color.WHITE)
+                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    bitmap
+                } catch (e: OutOfMemoryError) {
+                    null
+                }
             }
         }
+    }
+
+    private companion object {
+        /** Safe upper bound on either bitmap dimension — see the hardening comment above. */
+        const val MAX_BITMAP_DIMENSION_PX = 4096
+
+        /** Same oversized-source guard as `PdfBoxEditEngine.MAX_SOURCE_FILE_SIZE_BYTES`. */
+        const val MAX_SOURCE_FILE_SIZE_BYTES = 200L * 1024 * 1024
     }
 
     override suspend fun close() = withContext(ioDispatcher) {

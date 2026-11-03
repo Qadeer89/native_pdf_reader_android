@@ -521,6 +521,32 @@ class PdfBoxEditEngineTest {
     }
 
     /**
+     * Hardening (backlog item 11): a source file larger than the engine's configured limit
+     * is rejected up front with [com.pdfreader.app.model.PdfOpenError.TooLarge] rather than
+     * being handed to PDFBox to parse. Uses a sparse file (`RandomAccessFile.setLength`) so
+     * the test doesn't actually write 200+ MB to disk — only the file's reported length
+     * matters for this check, not its content.
+     */
+    @Test
+    fun opensRejectsASourceFileLargerThanTheConfiguredLimit() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val engine = PdfBoxEditEngine(context, ioDispatcher = Dispatchers.Unconfined)
+        val oversizedFile = File.createTempFile("pdfbox-edit-engine-test-oversized", ".pdf")
+        try {
+            java.io.RandomAccessFile(oversizedFile, "rw").use { it.setLength(201L * 1024 * 1024) }
+
+            val result = engine.open(PdfSource.LocalFile(oversizedFile))
+
+            assertTrue("expected a Failure but got $result", result is PdfOpenResult.Failure)
+            assertTrue(
+                (result as PdfOpenResult.Failure).error is com.pdfreader.app.model.PdfOpenError.TooLarge,
+            )
+        } finally {
+            oversizedFile.delete()
+        }
+    }
+
+    /**
      * PDF-009: a text AcroForm field can be read via [PdfEditEngine.listFormFields] and
      * written via [PdfEditEngine.setFormFieldValue] using only [PDField]'s generic
      * string-based API — no per-field-type special-casing (see planning/ADR.md ADR-021).

@@ -2,6 +2,7 @@ package com.pdfreader.app.pdfengine
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.provider.OpenableColumns
 import com.pdfreader.app.model.PdfAttachment
 import com.pdfreader.app.model.PdfDocumentHandle
 import com.pdfreader.app.model.PdfFormField
@@ -62,6 +63,20 @@ private const val NOTE_ANNOTATION_SIZE_POINTS = 20f
 private const val SEARCH_SNIPPET_CONTEXT_CHARS = 24
 
 /**
+ * Hardening (backlog item 11): the largest source file this engine will attempt to parse
+ * into an in-memory [PDDocument]. PDFBox has no built-in limit on this, so an oversized file
+ * — accidental, or a deliberate resource-exhaustion attempt — would otherwise risk an OOM
+ * mid-parse; checked up front so it fails fast with [PdfOpenError.TooLarge] instead. This
+ * only catches the "the file itself is huge" case, not a small file that *decompresses* to
+ * something huge (e.g. a zip-bomb-style FlateDecode stream) — PDFBox doesn't expose a hook
+ * to cap decompressed-stream size, so that narrower case remains open.
+ */
+private const val MAX_SOURCE_FILE_SIZE_BYTES = 200L * 1024 * 1024
+
+/** Thrown by [PdfBoxEditEngine.loadDocument] when the source exceeds [MAX_SOURCE_FILE_SIZE_BYTES]. */
+private class SourceTooLargeException(val sizeBytes: Long) : IOException("source is $sizeBytes bytes")
+
+/**
  * [PdfEditEngine] backed by PDFBox-Android (approved as DEC-001; see
  * docs/DECISIONS_AND_OPEN_QUESTIONS.md and planning/ADR.md ADR-009/ADR-010).
  *
@@ -96,6 +111,8 @@ class PdfBoxEditEngine(
                 document = opened
                 currentSource = source
                 PdfOpenResult.Success(PdfDocumentHandle(pageCount = opened.numberOfPages))
+            } catch (e: SourceTooLargeException) {
+                PdfOpenResult.Failure(PdfOpenError.TooLarge(e.sizeBytes))
             } catch (e: InvalidPasswordException) {
                 PdfOpenResult.Failure(PdfOpenError.PasswordProtected(e.message ?: "locked"))
             } catch (e: FileNotFoundException) {
@@ -117,14 +134,26 @@ class PdfBoxEditEngine(
     private fun loadDocument(source: PdfSource): PDDocument = when (source) {
         is PdfSource.LocalFile -> {
             if (!source.file.exists()) throw FileNotFoundException(source.file.path)
+            val sizeBytes = source.file.length()
+            if (sizeBytes > MAX_SOURCE_FILE_SIZE_BYTES) throw SourceTooLargeException(sizeBytes)
             if (source.password != null) PDDocument.load(source.file, source.password) else PDDocument.load(source.file)
         }
         is PdfSource.ContentUri -> {
+            val sizeBytes = querySize(source.uri)
+            if (sizeBytes != null && sizeBytes > MAX_SOURCE_FILE_SIZE_BYTES) throw SourceTooLargeException(sizeBytes)
             val input = context.contentResolver.openInputStream(source.uri)
                 ?: throw FileNotFoundException(source.uri.toString())
             input.use {
                 if (source.password != null) PDDocument.load(it, source.password) else PDDocument.load(it)
             }
+        }
+    }
+
+    /** The content Uri's reported size in bytes, or null if the provider doesn't report one. */
+    private fun querySize(uri: android.net.Uri): Long? {
+        val sizeColumn = arrayOf(OpenableColumns.SIZE)
+        return context.contentResolver.query(uri, sizeColumn, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else null
         }
     }
 
