@@ -12,7 +12,9 @@ import com.pdfreader.app.data.recents.RecentDocumentEntity
 import com.pdfreader.app.data.recents.RecentDocumentsRepository
 import com.pdfreader.app.data.signatures.ImageUriDecoder
 import com.pdfreader.app.data.signatures.SavedSignature
+import com.pdfreader.app.data.signatures.SignaturePlacement
 import com.pdfreader.app.data.signatures.SignatureRepository
+import com.pdfreader.app.data.signatures.removeLightBackground
 import com.pdfreader.app.model.PdfAttachment
 import com.pdfreader.app.model.PdfFormField
 import com.pdfreader.app.model.PdfOpenError
@@ -196,6 +198,12 @@ class ReaderViewModel(
 
     /** Highlight markers per page index, this session only — see [addHighlightAt]. PDF-005. */
     private val highlightMarkersByPage = mutableMapOf<Int, MutableList<HighlightMarker>>()
+
+    /** A stable key for the currently open document, for [SignatureRepository]'s placement memory — see [openSource]. PDF-007. */
+    private var currentDocumentKey: String? = null
+
+    private val _lastPlacementForDocument = MutableStateFlow<SignaturePlacement?>(null)
+    val lastPlacementForDocument: StateFlow<SignaturePlacement?> = _lastPlacementForDocument.asStateFlow()
 
     /**
      * Records, in add order, every session-added note/highlight annotation per page — its
@@ -743,7 +751,7 @@ class ReaderViewModel(
     fun importSignatureImage(uri: Uri) {
         viewModelScope.launch {
             val bitmap = imageUriDecoder.decode(uri) ?: return@launch
-            persistSignature(bitmap)
+            persistSignature(removeLightBackground(bitmap))
         }
     }
 
@@ -771,25 +779,41 @@ class ReaderViewModel(
      * stream rather than changing page count/order, so — like note annotations — it gets a
      * live Compose overlay instead of needing a full re-render. PDF-007.
      */
-    fun placeSignatureAt(xFraction: Float, yFraction: Float) {
+    fun placeSignatureAt(xFraction: Float, yFraction: Float, widthFraction: Float = DEFAULT_SIGNATURE_WIDTH_FRACTION) {
         if (!editEngineAvailable) return
         val signature = _savedSignatures.value.firstOrNull { it.id == _selectedSignatureId.value } ?: return
         val pageIndex = currentPageIndex
+        val documentKey = currentDocumentKey
         viewModelScope.launch {
             val pngBytes = ByteArrayOutputStream().use { stream ->
                 signature.bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
                 stream.toByteArray()
             }
-            val placed = pdfEditEngine.addImageStamp(pageIndex, xFraction, yFraction, DEFAULT_SIGNATURE_WIDTH_FRACTION, pngBytes)
+            val placed = pdfEditEngine.addImageStamp(pageIndex, xFraction, yFraction, widthFraction, pngBytes)
             if (placed) {
-                val stamp = SignatureStamp(xFraction, yFraction, DEFAULT_SIGNATURE_WIDTH_FRACTION, signature.bitmap)
+                val stamp = SignatureStamp(xFraction, yFraction, widthFraction, signature.bitmap)
                 signatureStampsByPage.getOrPut(pageIndex) { mutableListOf() }.add(stamp)
                 val current = _uiState.value
                 if (current is ReaderUiState.Loaded && current.pageIndex == pageIndex) {
                     _uiState.value = current.copy(signatureStamps = signatureStampsByPage[pageIndex].orEmpty())
                 }
+                if (documentKey != null) {
+                    val placement = SignaturePlacement(xFraction, yFraction, widthFraction)
+                    signatureRepository.saveLastPlacement(documentKey, placement)
+                    _lastPlacementForDocument.value = placement
+                }
             }
         }
+    }
+
+    /**
+     * Places the selected signature at this document's remembered position/size — PDF-007
+     * placement memory — instead of requiring a fresh tap. No-ops if nothing's been placed
+     * on a document with this key before, or the edit engine isn't available.
+     */
+    fun placeSignatureAtLastPosition() {
+        val placement = _lastPlacementForDocument.value ?: return
+        placeSignatureAt(placement.xFraction, placement.yFraction, placement.widthFraction)
     }
 
     /** Creates a new device-bound signing identity named [displayName] (PDF-008, DEC-002). */
@@ -944,6 +968,9 @@ class ReaderViewModel(
         pendingPasswordRecentUri = null
         _passwordRequired.value = false
         _passwordError.value = null
+
+        currentDocumentKey = recentUriToRecord ?: metadata.displayName
+        _lastPlacementForDocument.value = currentDocumentKey?.let { signatureRepository.getLastPlacement(it) }
 
         val editOpenResult = pdfEditEngine.open(source)
         editEngineAvailable = editOpenResult is PdfOpenResult.Success

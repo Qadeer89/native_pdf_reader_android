@@ -119,6 +119,7 @@ fun ReaderScreen(
     val passwordError by viewModel.passwordError.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
     val fullScreen by viewModel.fullScreen.collectAsState()
+    val lastPlacementForDocument by viewModel.lastPlacementForDocument.collectAsState()
     var showRecentMenu by remember { mutableStateOf(false) }
     var showPageMenu by remember { mutableStateOf(false) }
     var showSignMenu by remember { mutableStateOf(false) }
@@ -320,6 +321,16 @@ fun ReaderScreen(
                                     },
                                     onDelete = viewModel::deleteSignature,
                                 )
+                            }
+                            if (lastPlacementForDocument != null && savedSignatures.isNotEmpty() && !signatureMode) {
+                                TextButton(
+                                    onClick = {
+                                        viewModel.selectSignature(savedSignatures.last().id)
+                                        viewModel.placeSignatureAtLastPosition()
+                                    },
+                                ) {
+                                    Text(stringResource(R.string.reader_signature_place_last_position))
+                                }
                             }
                             Box {
                                 TextButton(onClick = { showDigitalSignMenu = true }) {
@@ -1515,6 +1526,14 @@ private fun SignatureVerificationDialog(results: List<SignatureVerificationResul
                     )
                     if (!result.coversEntireDocument) {
                         Text(stringResource(R.string.digital_sign_verify_partial_coverage))
+                    }
+                    when (result.chainValid) {
+                        true -> Text(stringResource(R.string.digital_sign_verify_chain_valid))
+                        false -> Text(
+                            stringResource(R.string.digital_sign_verify_chain_invalid),
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        null -> Unit
                     }
                 }
             }

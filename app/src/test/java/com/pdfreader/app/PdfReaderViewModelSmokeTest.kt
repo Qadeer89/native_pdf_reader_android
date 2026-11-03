@@ -1132,6 +1132,15 @@ class PdfReaderViewModelSmokeTest {
         override suspend fun delete(id: String) {
             signatures.removeAll { it.id == id }
         }
+
+        private val placements = mutableMapOf<String, com.pdfreader.app.data.signatures.SignaturePlacement>()
+
+        override suspend fun getLastPlacement(documentKey: String): com.pdfreader.app.data.signatures.SignaturePlacement? =
+            placements[documentKey]
+
+        override suspend fun saveLastPlacement(documentKey: String, placement: com.pdfreader.app.data.signatures.SignaturePlacement) {
+            placements[documentKey] = placement
+        }
     }
 
     /** Stands in for [ContentResolverImageUriDecoder]. */

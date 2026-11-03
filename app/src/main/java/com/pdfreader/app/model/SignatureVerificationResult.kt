@@ -31,4 +31,17 @@ data class SignatureVerificationResult(
      * this signature's own coverage says nothing about.
      */
     val coversEntireDocument: Boolean,
+    /**
+     * Certificate **chain** validation (leaf-to-root, verifying each certificate in the
+     * signature's own embedded chain was actually signed by the next one up) — allowed
+     * under DEC-002 without a new decision, since it uses only the certificates the
+     * signature itself carries, not any app-curated trust-anchor/root-CA list. Null when
+     * only one certificate (the leaf) is embedded, so there's nothing to chain-validate;
+     * true if every verifiable link in the embedded chain checks out (terminating at either
+     * a self-signed root or a certificate whose issuer isn't embedded — this says nothing
+     * about whether that root is actually *trusted*); false if any link's signature doesn't
+     * verify. Still, deliberately, **not** revocation (OCSP/CRL) or timestamp checking —
+     * those remain out of scope per DEC-002 until a separate future decision.
+     */
+    val chainValid: Boolean? = null,
 )

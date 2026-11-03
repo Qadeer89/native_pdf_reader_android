@@ -224,6 +224,80 @@ class PdfBoxEditEngineTest {
         return keyPair to certificate
     }
 
+    /**
+     * A 2-certificate chain (leaf signed by a CA, CA self-signed) for exercising
+     * [PdfEditEngine.verifySignatures]'s DEC-002 chain-validation — same mechanics as
+     * [generateSelfSignedCertificate], but with the leaf's issuer actually being the CA.
+     */
+    private fun generateCertificateChain(): Triple<java.security.KeyPair, java.security.cert.X509Certificate, java.security.cert.X509Certificate> {
+        if (java.security.Security.getProvider(org.bouncycastle.jce.provider.BouncyCastleProvider.PROVIDER_NAME) == null) {
+            java.security.Security.addProvider(org.bouncycastle.jce.provider.BouncyCastleProvider())
+        }
+        val now = System.currentTimeMillis()
+        val notBefore = java.util.Date(now)
+        val notAfter = java.util.Date(now + 365L * 24 * 60 * 60 * 1000)
+        val converter = org.bouncycastle.cert.jcajce.JcaX509CertificateConverter()
+            .setProvider(org.bouncycastle.jce.provider.BouncyCastleProvider.PROVIDER_NAME)
+
+        val caKeyPair = java.security.KeyPairGenerator.getInstance("RSA").apply { initialize(2048) }.generateKeyPair()
+        val caSubject = org.bouncycastle.asn1.x500.X500Name("CN=Engine Test CA")
+        val caSigner = org.bouncycastle.operator.jcajce.JcaContentSignerBuilder("SHA256withRSA").build(caKeyPair.private)
+        val caCertBuilder = org.bouncycastle.cert.X509v3CertificateBuilder(
+            caSubject,
+            java.math.BigInteger.valueOf(now),
+            notBefore,
+            notAfter,
+            caSubject,
+            org.bouncycastle.asn1.x509.SubjectPublicKeyInfo.getInstance(caKeyPair.public.encoded),
+        )
+        val caCertificate = converter.getCertificate(caCertBuilder.build(caSigner))
+
+        val leafKeyPair = java.security.KeyPairGenerator.getInstance("RSA").apply { initialize(2048) }.generateKeyPair()
+        val leafSubject = org.bouncycastle.asn1.x500.X500Name("CN=Chain Test Signer")
+        val leafCertBuilder = org.bouncycastle.cert.X509v3CertificateBuilder(
+            caSubject,
+            java.math.BigInteger.valueOf(now + 1),
+            notBefore,
+            notAfter,
+            leafSubject,
+            org.bouncycastle.asn1.x509.SubjectPublicKeyInfo.getInstance(leafKeyPair.public.encoded),
+        )
+        // Signed by the CA's key, not the leaf's own — this is what makes it a real chain
+        // link rather than another self-signed certificate.
+        val leafCertificate = converter.getCertificate(leafCertBuilder.build(caSigner))
+
+        return Triple(leafKeyPair, leafCertificate, caCertificate)
+    }
+
+    @Test
+    fun verifySignaturesReportsAValidCertificateChain() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val signingEngine = PdfBoxEditEngine(context, ioDispatcher = Dispatchers.Unconfined)
+        val sourceFile = fixtureFile()
+        var signedFile: File? = null
+        try {
+            signingEngine.open(PdfSource.LocalFile(sourceFile))
+            val (leafKeyPair, leafCertificate, caCertificate) = generateCertificateChain()
+            signedFile = signingEngine.signWithDetachedCms(
+                "Chain Test Signer",
+                leafKeyPair.private,
+                listOf(leafCertificate, caCertificate),
+            )
+            assertTrue(signedFile != null)
+            signingEngine.close()
+
+            val verifyingEngine = PdfBoxEditEngine(context, ioDispatcher = Dispatchers.Unconfined)
+            verifyingEngine.open(PdfSource.LocalFile(signedFile!!))
+            val result = verifyingEngine.verifySignatures().single()
+            assertTrue("an untampered leaf-signed-by-CA signature must still verify cryptographically", result.cryptographicallyValid)
+            assertEquals(true, result.chainValid)
+            verifyingEngine.close()
+        } finally {
+            signedFile?.delete()
+            sourceFile.delete()
+        }
+    }
+
     @Test
     fun signWithDetachedCmsProducesAValidatedSignedCopyAndLeavesTheLiveDocumentUsable() = runTest {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()

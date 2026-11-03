@@ -499,6 +499,19 @@ class PdfBoxEditEngine(
             val byteRange = sig.byteRange
             val coversEntireDocument = byteRange.size == 4 && byteRange[2] + byteRange[3] == fileBytes.size
 
+            val embeddedCertificates = signedData.certificates.getMatches(null).mapNotNull { holder ->
+                try {
+                    JcaX509CertificateConverter().setProvider(BouncyCastleProvider.PROVIDER_NAME).getCertificate(holder)
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            val chainValid = if (certificate == null || embeddedCertificates.size <= 1) {
+                null
+            } else {
+                validateCertificateChain(certificate, embeddedCertificates)
+            }
+
             SignatureVerificationResult(
                 signerName = signerName,
                 signDateEpochMillis = signDateMillis,
@@ -506,9 +519,49 @@ class PdfBoxEditEngine(
                 certificateSubject = certificate?.subjectX500Principal?.name ?: "Unknown",
                 certificateCurrentlyValid = certificateCurrentlyValid,
                 coversEntireDocument = coversEntireDocument,
+                chainValid = chainValid,
             )
         } catch (_: Exception) {
             SignatureVerificationResult(signerName, signDateMillis, false, "Unknown", false, false)
+        }
+    }
+
+    /**
+     * Walks [leaf]'s chain up through [embeddedCertificates] (everything the CMS SignedData
+     * itself carried — never anything from outside the signature), verifying each
+     * certificate's signature against the next one up by subject/issuer matching, until
+     * either a self-signed certificate (a root, verified against its own public key) or a
+     * certificate whose issuer isn't among [embeddedCertificates] (the chain simply ends
+     * here — not a failure, since this app does no trust-anchor lookup to resolve further
+     * per DEC-002). Returns false the moment any link's signature fails to verify; a cycle
+     * (shouldn't happen in a well-formed chain) is treated as valid-so-far rather than an
+     * infinite loop.
+     */
+    private fun validateCertificateChain(leaf: X509Certificate, embeddedCertificates: List<X509Certificate>): Boolean {
+        var current = leaf
+        val visited = mutableSetOf<X509Certificate>()
+        while (true) {
+            if (!visited.add(current)) return true
+            val isSelfSigned = current.subjectX500Principal == current.issuerX500Principal
+            if (isSelfSigned) {
+                return try {
+                    current.verify(current.publicKey)
+                    true
+                } catch (_: Exception) {
+                    false
+                }
+            }
+            val issuer = embeddedCertificates.firstOrNull {
+                it !== current && it.subjectX500Principal == current.issuerX500Principal
+            } ?: return true
+            val linkValid = try {
+                current.verify(issuer.publicKey)
+                true
+            } catch (_: Exception) {
+                false
+            }
+            if (!linkValid) return false
+            current = issuer
         }
     }
 
