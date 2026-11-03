@@ -30,7 +30,7 @@ jobs:
 
       - name: Upload lint/test reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: reports
           path: |
@@ -39,7 +39,7 @@ jobs:
           retention-days: 14
 
       - name: Upload debug APK (install on a real device without a local build)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: app-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
@@ -51,7 +51,7 @@ jobs:
 
       - name: Upload dependency tree
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dependency-tree
           path: dependency-tree.txt
