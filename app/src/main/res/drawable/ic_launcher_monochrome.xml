@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed-icon (Android 13+ "Material You" monochrome) variant of ic_launcher_foreground —
+     same silhouette, single fill color since the launcher applies its own tint at runtime. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M34,24 L64,24 L80,40 L80,88 L34,88 Z M64,24 L64,40 L80,40 Z M42,52 L72,52 L72,56 L42,56 Z M42,62 L72,62 L72,66 L42,66 Z M42,72 L62,72 L62,76 L42,76 Z" />
+</vector>

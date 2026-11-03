@@ -1,7 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.kotlin.kapt)
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -55,10 +55,6 @@ android {
     }
 }
 
-kapt {
-    correctErrorTypes = true
-}
-
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -72,7 +68,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
-    kapt(libs.androidx.room.compiler)
+    ksp(libs.androidx.room.compiler)
     // PDF-005/PDF-006 (annotations/page-ops) engine. docs/ARCHITECTURE.md §2 gate passed via
     // a POC (app/src/test/.../poc/PdfBoxAndroidEnginePocTest.kt); approved as DEC-001 in
     // docs/DECISIONS_AND_OPEN_QUESTIONS.md. android.graphics.pdf.PdfRenderer (PlatformPdfRendererEngine)

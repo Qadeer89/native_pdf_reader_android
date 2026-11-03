@@ -3,6 +3,7 @@
 
     <application
         android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
@@ -19,12 +20,23 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- PDF-001: file-association open ("Open with" / tapping a .pdf) -->
+            <!-- PDF-001: file-association open ("Open with" / tapping a .pdf). Split into one
+                 <data> per scheme per lint's IntentFilterUniqueDataAttributes: a single <data>
+                 tag mixing multiple attribute kinds (scheme + mimeType here) is matched as a
+                 cross product of every attribute seen anywhere in the intent-filter, not just
+                 the pairings actually written, so two single-attribute-combo tags are clearer
+                 and behave identically here (both already only pair one scheme with one type). -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:scheme="content" android:mimeType="application/pdf" />
-                <data android:scheme="file" android:mimeType="application/pdf" />
+                <data android:scheme="content" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="file" />
+                <data android:mimeType="application/pdf" />
             </intent-filter>
 
             <!-- PDF-001: share-intent open (share sheet "Open with PDF Reader") -->
