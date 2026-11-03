@@ -55,6 +55,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -1199,6 +1200,7 @@ private fun ThumbnailStrip(
                 thumbnail = viewModel.pageBitmap(index, ReaderViewModel.THUMBNAIL_WIDTH)
             }
             val isCurrent = index == currentPageIndex
+            val pageLabel = stringResource(R.string.reader_page_label, index + 1, pageCount)
             Box(
                 modifier = Modifier
                     .padding(4.dp)
@@ -1206,15 +1208,19 @@ private fun ThumbnailStrip(
                         width = if (isCurrent) 2.dp else 0.dp,
                         color = if (isCurrent) MaterialTheme.colorScheme.primary else Color.Transparent,
                     )
-                    .clickable { onPageSelected(index) }
-                    .size(width = 64.dp, height = 88.dp),
+                    .clickable(onClickLabel = pageLabel) { onPageSelected(index) }
+                    .size(width = 64.dp, height = 88.dp)
+                    .semantics(mergeDescendants = true) {
+                        contentDescription = pageLabel
+                        selected = isCurrent
+                    },
                 contentAlignment = Alignment.Center,
             ) {
                 val pageThumbnail = thumbnail
                 if (pageThumbnail != null) {
                     Image(
                         bitmap = remember(pageThumbnail) { pageThumbnail.asImageBitmap() },
-                        contentDescription = stringResource(R.string.reader_page_label, index + 1, pageCount),
+                        contentDescription = null,
                         modifier = Modifier.height(80.dp),
                     )
                 } else {
