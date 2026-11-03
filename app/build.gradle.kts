@@ -1,8 +1,27 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.ksp)
 }
+
+// Phase 7 (release, backlog item 12): release signing scaffold. Reads from
+// `local.properties` (never committed — see .gitignore) rather than a committed keystore,
+// so this file is safe to check in with no real secret in it. Nothing here has been
+// exercised: there is no actual keystore file, Play Console account, or JDK/Android SDK on
+// this machine to run `./gradlew bundleRelease` and confirm it produces a working signed
+// AAB. Until `local.properties` provides real values, `signingConfigs.release` falls back
+// to the debug signing config so `assembleRelease`/`bundleRelease` still work locally (as an
+// unsigned-for-the-Play-Store debug-signed build) rather than failing outright.
+val localProperties = Properties().apply {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        localPropertiesFile.inputStream().use { load(it) }
+    }
+}
+val releaseKeystorePath = localProperties.getProperty("RELEASE_KEYSTORE_PATH")
+val hasReleaseSigningConfig = releaseKeystorePath != null && rootProject.file(releaseKeystorePath).exists()
 
 android {
     namespace = "com.pdfreader.app"
@@ -18,10 +37,26 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (hasReleaseSigningConfig) {
+            create("release") {
+                storeFile = rootProject.file(releaseKeystorePath!!)
+                storePassword = localProperties.getProperty("RELEASE_KEYSTORE_PASSWORD")
+                keyAlias = localProperties.getProperty("RELEASE_KEY_ALIAS")
+                keyPassword = localProperties.getProperty("RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = if (hasReleaseSigningConfig) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 

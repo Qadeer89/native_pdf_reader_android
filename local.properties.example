@@ -1,0 +1,12 @@
+# Copy this file to local.properties (already gitignored — never commit the real file) and
+# fill in real values before running ./gradlew bundleRelease. See app/build.gradle.kts and
+# docs/RELEASE_CHECKLIST.md. sdk.dir is set automatically by Android Studio; the four
+# RELEASE_* keys below are only needed for a real signed release build, and are absent here
+# on purpose — see RELEASE_CHECKLIST.md for how to generate a release keystore.
+
+# sdk.dir=/path/to/Android/sdk
+
+RELEASE_KEYSTORE_PATH=release/pdf-reader-release.jks
+RELEASE_KEYSTORE_PASSWORD=change-me
+RELEASE_KEY_ALIAS=pdf-reader
+RELEASE_KEY_PASSWORD=change-me

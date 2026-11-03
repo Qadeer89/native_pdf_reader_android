@@ -93,8 +93,18 @@ Tracks concrete work items against `docs/IMPLEMENTATION_PLAN.md` phases and `doc
 - [x] Key lifecycle hardening (PDF-008 follow-up): `BouncyCastlePkcs12SigningMaterialLoader.load` zeroes its password `CharArray` in a `finally` block instead of leaving the plaintext for the GC; `PasswordPromptDialog`/`Pkcs12PasswordDialog` switched from `rememberSaveable` to `remember` so a typed-but-not-yet-submitted password is never serialized into saved-instance-state. `AndroidKeystoreSigningIdentityManager` reviewed — already safe (hardware-backed key, never extracted). Two new tests in `Pkcs12SigningMaterialLoaderTest`. **Known gap**: the password `TextField`'s backing `String` itself can't be zeroed (JVM strings are immutable) — would need a custom char-array input to close fully; not attempted. **Not verified**: no JDK/Android SDK on this machine, so no `./gradlew` evidence and no real-device memory-dump confirmation. — SEC-003
 - [ ] Performance baselines (render/navigation/search/merge/upload) on representative devices — no real device/emulator available in this environment; must be measured on actual hardware before committing to budgets.
 
-## Phase 7 — Release (not started)
-- [ ] Signed AAB/APK, Play policy review, privacy disclosures, license notices, reproducible build doc.
+## Phase 7 — Release (in progress — see `docs/RELEASE_CHECKLIST.md` for the full, itemized state)
+- [x] Release signing config scaffold (`app/build.gradle.kts` reads a real keystore's path/
+  passwords from gitignored `local.properties`, falling back to debug signing when absent —
+  see `local.properties.example`) and `NOTICE.md` (license notices, generated from
+  `planning/DEPENDENCY_LICENSE_INVENTORY.md`) added.
+- [ ] Signed AAB/APK, Play policy review (Data Safety form, store listing, content rating,
+  privacy policy URL), and a reproducible-build verification pass are **not done** — each is
+  either blocked on a human step this agent cannot perform (generating and safekeeping a real
+  release keystore; Play Console account/billing; a public URL to host a privacy policy) or on
+  hardware this environment doesn't have (JDK/Android SDK to actually run
+  `./gradlew bundleRelease`, a device/emulator for store-listing screenshots). See
+  `docs/RELEASE_CHECKLIST.md` for the itemized breakdown of exactly what's blocked and why.
 
 ## Cross-cutting backlog items
 - [ ] Replace placeholder `applicationId` (`com.pdfreader.app`) once branding/package-name decision is made (open question in `docs/DECISIONS_AND_OPEN_QUESTIONS.md`).
