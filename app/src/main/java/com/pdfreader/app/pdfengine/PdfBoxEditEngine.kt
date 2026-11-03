@@ -511,6 +511,8 @@ class PdfBoxEditEngine(
                         fullyQualifiedName = field.fullyQualifiedName,
                         fieldType = field.fieldType,
                         value = field.valueAsString,
+                        checkboxOnValue = (field as? com.tom_roush.pdfbox.pdmodel.interactive.form.PDCheckBox)?.onValue,
+                        choiceOptions = (field as? com.tom_roush.pdfbox.pdmodel.interactive.form.PDChoice)?.options.orEmpty(),
                     )
                 } catch (e: Exception) {
                     // A single malformed field must not take down the whole listing.
@@ -554,6 +556,23 @@ class PdfBoxEditEngine(
                 tempFile
             } catch (e: IOException) {
                 null
+            }
+        }
+    }
+
+    override suspend fun extractAllAttachments(): List<Pair<String, File>> = withContext(ioDispatcher) {
+        lock.withLock {
+            val doc = document ?: return@withContext emptyList()
+            collectAttachmentSpecs(doc).mapNotNull { (name, spec) ->
+                val embeddedFile = spec.embeddedFile ?: return@mapNotNull null
+                try {
+                    val safeName = name.replace(Regex("[/\\\\]"), "_")
+                    val tempFile = File(context.cacheDir, "pdf-attachment-${UUID.randomUUID()}-$safeName")
+                    tempFile.writeBytes(embeddedFile.toByteArray())
+                    name to tempFile
+                } catch (e: IOException) {
+                    null
+                }
             }
         }
     }

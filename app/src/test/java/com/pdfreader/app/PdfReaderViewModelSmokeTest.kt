@@ -1053,6 +1053,11 @@ class PdfReaderViewModelSmokeTest {
             return File.createTempFile("fake-attachment", ".bin")
         }
 
+        override suspend fun extractAllAttachments(): List<Pair<String, File>> {
+            if (!extractAttachmentSucceeds) return emptyList()
+            return attachmentsResult.map { it.name to File.createTempFile("fake-attachment", ".bin") }
+        }
+
         var searchResults: List<com.pdfreader.app.model.PdfSearchMatch> = emptyList()
 
         override suspend fun searchText(query: String): List<com.pdfreader.app.model.PdfSearchMatch> =
@@ -1078,9 +1083,17 @@ class PdfReaderViewModelSmokeTest {
     /** Stands in for [ContentResolverDestinationWriter]. */
     private class FakeDestinationWriter(private val writeSucceeds: Boolean = true) : DestinationWriter {
         var lastDestination: Uri? = null
+        var lastTreeUri: Uri? = null
+        val writtenIntoTreeNames = mutableListOf<String>()
 
         override suspend fun writeFileToUri(source: File, destination: Uri): Boolean {
             lastDestination = destination
+            return writeSucceeds
+        }
+
+        override suspend fun writeFileIntoTree(source: File, treeUri: Uri, displayName: String): Boolean {
+            lastTreeUri = treeUri
+            writtenIntoTreeNames += displayName
             return writeSucceeds
         }
     }

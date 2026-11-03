@@ -575,6 +575,35 @@ class ReaderViewModel(
         _attachmentExtractState.value = ExportState.Idle
     }
 
+    /**
+     * Extracts every attachment in the open document at once into the directory [treeUri]
+     * (from `ACTION_OPEN_DOCUMENT_TREE`) — batch counterpart to [extractAttachmentTo] for a
+     * document with several attachments, avoiding a separate destination picker per file.
+     * Reports overall success only if every attachment was both extracted and written.
+     */
+    fun extractAllAttachmentsTo(treeUri: Uri) {
+        if (!editEngineAvailable) return
+        viewModelScope.launch {
+            _attachmentExtractState.value = ExportState.Saving
+            val extracted = pdfEditEngine.extractAllAttachments()
+            if (extracted.isEmpty()) {
+                _attachmentExtractState.value = ExportState.Failure("No attachments to extract.")
+                return@launch
+            }
+            var allCommitted = true
+            for ((name, file) in extracted) {
+                val committed = destinationWriter.writeFileIntoTree(file, treeUri, name)
+                file.delete()
+                if (!committed) allCommitted = false
+            }
+            _attachmentExtractState.value = if (allCommitted) {
+                ExportState.Success
+            } else {
+                ExportState.Failure("Could not save every attachment.")
+            }
+        }
+    }
+
     /** Marks [id] as the signature [placeSignatureAt] will stamp next (PDF-007). */
     fun selectSignature(id: String) {
         _selectedSignatureId.value = id

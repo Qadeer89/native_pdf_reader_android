@@ -12,4 +12,13 @@ import java.io.File
 interface DestinationWriter {
     /** Copies [source]'s bytes to [destination]. Returns false (never throws) on failure. */
     suspend fun writeFileToUri(source: File, destination: Uri): Boolean
+
+    /**
+     * Creates a new document named [displayName] inside the directory tree [treeUri]
+     * (from `ACTION_OPEN_DOCUMENT_TREE`) and copies [source]'s bytes into it — batch
+     * counterpart to [writeFileToUri] for extracting several files at once (PDF-009's
+     * multi-attachment extraction) without a separate picker round trip per file. Returns
+     * false (never throws) on failure.
+     */
+    suspend fun writeFileIntoTree(source: File, treeUri: Uri, displayName: String): Boolean
 }

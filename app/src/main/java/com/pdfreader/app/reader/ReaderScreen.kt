@@ -99,6 +99,7 @@ fun ReaderScreen(
     onInsertDocumentClick: () -> Unit,
     onExtractCurrentPageClick: (suggestedName: String) -> Unit,
     onExtractAttachmentClick: (name: String) -> Unit,
+    onExtractAllAttachmentsClick: () -> Unit,
 ) {
     val state by viewModel.uiState.collectAsState()
     val layoutMode by viewModel.layoutMode.collectAsState()
@@ -552,6 +553,10 @@ fun ReaderScreen(
                     showAttachmentsDialog = false
                     onExtractAttachmentClick(name)
                 },
+                onExtractAll = {
+                    showAttachmentsDialog = false
+                    onExtractAllAttachmentsClick()
+                },
             )
         }
         if (showSearchDialog) {
@@ -801,11 +806,13 @@ private fun InsertPositionDialog(pageCount: Int, onDismiss: () -> Unit, onInsert
 }
 
 /**
- * Lists every AcroForm field found in the document (PDF-009) with an editable text field
- * per row. [PdfFormField.value] is read/written as a plain string via PDFBox's generic
- * `PDField`, so a checkbox or choice field's "value" here is its raw export-value text
- * (e.g. "Yes"/"Off") rather than a checkbox toggle or a dropdown — a simpler v1 scope than
- * per-field-type widgets, same incremental approach PDF-005 started with a plain text note.
+ * Lists every AcroForm field found in the document (PDF-009), one row per field, with a
+ * widget matched to its actual type: a [androidx.compose.material3.Checkbox] for a
+ * `PDCheckBox` ([PdfFormField.checkboxOnValue] non-null, toggling between it and "Off"), a
+ * dropdown for a `PDChoice` ([PdfFormField.choiceOptions] non-empty), and — for everything
+ * else, including a not-yet-special-cased radio-button group — the original free-text field
+ * with an explicit Save button. The checkbox/dropdown widgets save immediately on change
+ * (no separate Save step) since there's no free-text value to confirm first.
  */
 @Composable
 private fun FormFieldsDialog(
@@ -819,21 +826,55 @@ private fun FormFieldsDialog(
         text = {
             LazyColumn {
                 items(fields, key = { it.fullyQualifiedName }) { field ->
-                    var text by rememberSaveable(field.fullyQualifiedName) { mutableStateOf(field.value.orEmpty()) }
                     androidx.compose.foundation.layout.Column(modifier = Modifier.padding(vertical = 8.dp)) {
                         Text(field.fullyQualifiedName, style = MaterialTheme.typography.labelMedium)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            OutlinedTextField(
-                                value = text,
-                                onValueChange = { text = it },
-                                singleLine = true,
-                                modifier = Modifier.weight(1f),
-                            )
-                            TextButton(
-                                enabled = text != field.value.orEmpty(),
-                                onClick = { onSave(field.fullyQualifiedName, text) },
-                            ) {
-                                Text(stringResource(R.string.form_field_save))
+                        when {
+                            field.checkboxOnValue != null -> {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    androidx.compose.material3.Checkbox(
+                                        checked = field.value == field.checkboxOnValue,
+                                        onCheckedChange = { checked ->
+                                            onSave(field.fullyQualifiedName, if (checked) field.checkboxOnValue else "Off")
+                                        },
+                                    )
+                                    Text(field.value.orEmpty())
+                                }
+                            }
+                            field.choiceOptions.isNotEmpty() -> {
+                                var expanded by remember(field.fullyQualifiedName) { mutableStateOf(false) }
+                                Box {
+                                    TextButton(onClick = { expanded = true }) {
+                                        Text(field.value.orEmpty().ifBlank { stringResource(R.string.form_field_choice_placeholder) })
+                                    }
+                                    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                                        field.choiceOptions.forEach { option ->
+                                            DropdownMenuItem(
+                                                text = { Text(option) },
+                                                onClick = {
+                                                    expanded = false
+                                                    onSave(field.fullyQualifiedName, option)
+                                                },
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            else -> {
+                                var text by rememberSaveable(field.fullyQualifiedName) { mutableStateOf(field.value.orEmpty()) }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    OutlinedTextField(
+                                        value = text,
+                                        onValueChange = { text = it },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    TextButton(
+                                        enabled = text != field.value.orEmpty(),
+                                        onClick = { onSave(field.fullyQualifiedName, text) },
+                                    ) {
+                                        Text(stringResource(R.string.form_field_save))
+                                    }
+                                }
                             }
                         }
                     }
@@ -847,41 +888,58 @@ private fun FormFieldsDialog(
     )
 }
 
-/** Lists embedded-file attachments found in the document (PDF-009) with an extract action per item. */
+/**
+ * Lists embedded-file attachments found in the document (PDF-009), with an extract action
+ * per item plus — when there's more than one — an "Extract all" action that writes every
+ * attachment into a user-picked directory in one step (PDF-009 batch extraction).
+ */
 @Composable
 private fun AttachmentsDialog(
     attachments: List<PdfAttachment>,
     onDismiss: () -> Unit,
     onExtract: (name: String) -> Unit,
+    onExtractAll: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.attachments_title)) },
         text = {
-            LazyColumn {
-                items(attachments, key = { it.name }) { attachment ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        androidx.compose.foundation.layout.Column(modifier = Modifier.weight(1f)) {
-                            Text(attachment.name)
-                            val sizeLabel = attachment.sizeBytes?.let { "$it bytes" } ?: "—"
-                            Text(sizeLabel, style = MaterialTheme.typography.labelSmall)
-                        }
-                        TextButton(onClick = { onExtract(attachment.name) }) {
-                            Text(stringResource(R.string.attachment_extract_action))
-                        }
+            androidx.compose.foundation.layout.Column {
+                if (attachments.size > 1) {
+                    TextButton(onClick = onExtractAll) {
+                        Text(stringResource(R.string.attachments_extract_all_action))
                     }
-                    HorizontalDivider()
                 }
+                AttachmentsList(attachments, onExtract)
             }
         },
         confirmButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.attachments_done)) }
         },
     )
+}
+
+@Composable
+private fun AttachmentsList(attachments: List<PdfAttachment>, onExtract: (name: String) -> Unit) {
+    LazyColumn {
+        items(attachments, key = { it.name }) { attachment ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                androidx.compose.foundation.layout.Column(modifier = Modifier.weight(1f)) {
+                    Text(attachment.name)
+                    val sizeLabel = attachment.sizeBytes?.let { "$it bytes" } ?: "—"
+                    Text(sizeLabel, style = MaterialTheme.typography.labelSmall)
+                }
+                TextButton(onClick = { onExtract(attachment.name) }) {
+                    Text(stringResource(R.string.attachment_extract_action))
+                }
+            }
+            HorizontalDivider()
+        }
+    }
 }
 
 /** PDF-003: a query field plus a tappable list of matches, each jumping to its page on tap. */

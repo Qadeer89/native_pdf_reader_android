@@ -168,6 +168,16 @@ interface PdfEditEngine {
     suspend fun extractAttachment(name: String): File?
 
     /**
+     * Extracts every embedded-file attachment in the currently-open document at once —
+     * batch counterpart to [extractAttachment] (PDF-009), for a document with more than
+     * one attachment. Each returned temp file follows [extractAttachment]'s own contract
+     * (caller copies it to its real destination and deletes it). Returns an empty list if
+     * no document is open or it has no attachments; an attachment whose bytes can't be read
+     * is skipped rather than failing the whole batch.
+     */
+    suspend fun extractAllAttachments(): List<Pair<String, File>>
+
+    /**
      * Per docs/SECURITY_PRIVACY.md §4 ("write outputs to temporary files, validate/reopen,
      * then atomically commit"): saves the in-progress edits to a new app-private temporary
      * file, then reopens *that* file to confirm it is actually valid and has the expected

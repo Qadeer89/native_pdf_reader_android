@@ -41,9 +41,11 @@
     <string name="form_fields_title">Form fields</string>
     <string name="form_field_save">Save</string>
     <string name="form_fields_done">Done</string>
+    <string name="form_field_choice_placeholder">Select…</string>
     <string name="attachments_title">Attachments</string>
     <string name="attachment_extract_action">Extract</string>
     <string name="attachments_done">Done</string>
+    <string name="attachments_extract_all_action">Extract all…</string>
     <string name="attachment_extract_saving">Extracting attachment…</string>
     <string name="attachment_extract_success">Saved the attachment.</string>
     <string name="reader_search_action">Search</string>

@@ -134,6 +134,20 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+    /** PDF-009: user picks a directory to extract every attachment into at once. */
+    private val attachmentExtractAllDestinationLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri ->
+            if (treeUri != null) {
+                contentResolver.takePersistableUriPermission(
+                    treeUri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                )
+                readerViewModel.extractAllAttachmentsTo(treeUri)
+            } else {
+                readerViewModel.acknowledgeAttachmentExtractState()
+            }
+        }
+
     /**
      * PDF-008: which signing operation [signDestinationLauncher]'s result should finish —
      * set right before launching it, since the destination picker is the last step of
@@ -202,6 +216,7 @@ class MainActivity : ComponentActivity() {
                         pendingAttachmentName = name
                         attachmentExtractDestinationLauncher.launch(name)
                     },
+                    onExtractAllAttachmentsClick = { attachmentExtractAllDestinationLauncher.launch(null) },
                     onSignWithIdentityClick = { alias, suggestedName ->
                         pendingSignAction = PendingSignAction.WithIdentity(alias)
                         signDestinationLauncher.launch(suggestedName)
