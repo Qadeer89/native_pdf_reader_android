@@ -42,6 +42,32 @@ interface PdfEditEngine {
     /** Number of annotations currently on [pageIndex] (0-based), including ones just added. */
     suspend fun annotationCount(pageIndex: Int): Int
 
+    /**
+     * Adds a highlight annotation (PDF-005) covering the rectangle on [pageIndex] (0-based)
+     * from top-left corner ([xFraction], [yFraction]) with size ([widthFraction],
+     * [heightFraction]) — all in `0f..1f` of the page, top-down, same convention as
+     * [addImageStamp]. Drawn as a `PDAnnotationTextMarkup`/Highlight with its `QuadPoints`
+     * set to the rectangle's four corners — valid even without an underlying text selection
+     * to attach to, since this app has no text-position API to select real text with (see
+     * [searchText]'s doc). Returns false if no document is open or the page index is invalid.
+     */
+    suspend fun addHighlightAnnotation(
+        pageIndex: Int,
+        xFraction: Float,
+        yFraction: Float,
+        widthFraction: Float,
+        heightFraction: Float,
+    ): Boolean
+
+    /**
+     * Removes the annotation at [annotationIndex] (0-based, into `PDPage.getAnnotations()`'s
+     * own list order — the same order a just-added note/highlight/stamp appended to) from
+     * [pageIndex] (0-based). Used for PDF-005 undo/delete of a session-added annotation.
+     * Returns false if no document is open, the page index is invalid, or [annotationIndex]
+     * is out of range for that page's current annotation list.
+     */
+    suspend fun deleteAnnotation(pageIndex: Int, annotationIndex: Int): Boolean
+
     /** Number of pages in the currently open document (reflects deletes/merges done so far). */
     suspend fun pageCount(): Int
 

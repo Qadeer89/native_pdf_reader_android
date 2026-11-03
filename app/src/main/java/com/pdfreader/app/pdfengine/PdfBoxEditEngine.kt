@@ -20,8 +20,11 @@ import com.tom_roush.pdfbox.pdmodel.common.PDNameTreeNode
 import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import com.tom_roush.pdfbox.pdmodel.common.filespecification.PDComplexFileSpecification
 import com.tom_roush.pdfbox.pdmodel.encryption.InvalidPasswordException
+import com.tom_roush.pdfbox.pdmodel.graphics.color.PDColor
+import com.tom_roush.pdfbox.pdmodel.graphics.color.PDDeviceRGB
 import com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject
 import com.tom_roush.pdfbox.pdmodel.interactive.annotation.PDAnnotationText
+import com.tom_roush.pdfbox.pdmodel.interactive.annotation.PDAnnotationTextMarkup
 import com.tom_roush.pdfbox.pdmodel.interactive.digitalsignature.PDSignature
 import com.tom_roush.pdfbox.rendering.PDFRenderer
 import java.io.ByteArrayInputStream
@@ -192,6 +195,55 @@ class PdfBoxEditEngine(
             val doc = document ?: return@withContext 0
             if (pageIndex < 0 || pageIndex >= doc.numberOfPages) return@withContext 0
             doc.getPage(pageIndex).annotations.size
+        }
+    }
+
+    override suspend fun addHighlightAnnotation(
+        pageIndex: Int,
+        xFraction: Float,
+        yFraction: Float,
+        widthFraction: Float,
+        heightFraction: Float,
+    ): Boolean = withContext(ioDispatcher) {
+        lock.withLock {
+            val doc = document ?: return@withContext false
+            if (pageIndex < 0 || pageIndex >= doc.numberOfPages) return@withContext false
+            try {
+                val page = doc.getPage(pageIndex)
+                val mediaBox = page.mediaBox
+                val xPoints = mediaBox.lowerLeftX + xFraction.coerceIn(0f, 1f) * mediaBox.width
+                val widthPoints = widthFraction.coerceIn(0.01f, 1f) * mediaBox.width
+                val heightPoints = heightFraction.coerceIn(0.01f, 1f) * mediaBox.height
+                // Top-down UI fraction -> bottom-up PDF points; (xFraction, yFraction) is the
+                // rectangle's top-left corner, same convention as addImageStamp.
+                val yTopPoints = mediaBox.lowerLeftY + (1f - yFraction.coerceIn(0f, 1f)) * mediaBox.height
+                val yBottomPoints = yTopPoints - heightPoints
+
+                val highlight = PDAnnotationTextMarkup(PDAnnotationTextMarkup.SUB_TYPE_HIGHLIGHT)
+                highlight.rectangle = PDRectangle(xPoints, yBottomPoints, widthPoints, heightPoints)
+                highlight.color = PDColor(floatArrayOf(1f, 1f, 0f), PDDeviceRGB.INSTANCE)
+                highlight.quadPoints = floatArrayOf(
+                    xPoints, yTopPoints,
+                    xPoints + widthPoints, yTopPoints,
+                    xPoints, yBottomPoints,
+                    xPoints + widthPoints, yBottomPoints,
+                )
+                page.annotations.add(highlight)
+                true
+            } catch (_: Exception) {
+                false
+            }
+        }
+    }
+
+    override suspend fun deleteAnnotation(pageIndex: Int, annotationIndex: Int): Boolean = withContext(ioDispatcher) {
+        lock.withLock {
+            val doc = document ?: return@withContext false
+            if (pageIndex < 0 || pageIndex >= doc.numberOfPages) return@withContext false
+            val annotations = doc.getPage(pageIndex).annotations
+            if (annotationIndex < 0 || annotationIndex >= annotations.size) return@withContext false
+            annotations.removeAt(annotationIndex)
+            true
         }
     }
 

@@ -44,6 +44,8 @@ private const val TARGET_RENDER_WIDTH_PX = 1080
 private const val THUMBNAIL_WIDTH_PX = 160
 private const val DEFAULT_NOTE_TEXT = "Note"
 private const val DEFAULT_SIGNATURE_WIDTH_FRACTION = 0.35f
+private const val DEFAULT_HIGHLIGHT_WIDTH_FRACTION = 0.3f
+private const val DEFAULT_HIGHLIGHT_HEIGHT_FRACTION = 0.04f
 private const val KEY_LAST_OPEN_URI = "reader_last_open_uri"
 private const val KEY_LAST_PAGE_INDEX = "reader_last_page_index"
 
@@ -176,6 +178,27 @@ class ReaderViewModel(
 
     /** Normalized marker positions per page index, this session only (not read back from the file). */
     private val annotationMarkersByPage = mutableMapOf<Int, MutableList<Pair<Float, Float>>>()
+
+    /** Highlight markers per page index, this session only — see [addHighlightAt]. PDF-005. */
+    private val highlightMarkersByPage = mutableMapOf<Int, MutableList<HighlightMarker>>()
+
+    /**
+     * Records, in add order, every session-added note/highlight annotation per page — its
+     * [PageAnnotationRecord.engineIndex] (the annotation's index into `PDPage.getAnnotations()`
+     * at the moment it was added, so deleting it later targets the right one regardless of
+     * any pre-existing annotations already in the file) plus enough to also remove its UI
+     * marker. [undoLastAnnotation] only ever pops the last entry, so this never needs to
+     * re-derive an index after an earlier one shifted — each new addition is always appended
+     * after the current last entry, same list-append order PDFBox itself uses.
+     */
+    private data class PageAnnotationRecord(
+        val engineIndex: Int,
+        val isNote: Boolean,
+        val xFraction: Float,
+        val yFraction: Float,
+    )
+
+    private val annotationHistoryByPage = mutableMapOf<Int, MutableList<PageAnnotationRecord>>()
 
     /** Visual-only rotation feedback per page index, this session only — see [rotateCurrentPage]. */
     private val pageRotationsDegrees = mutableMapOf<Int, Int>()
@@ -329,14 +352,78 @@ class ReaderViewModel(
         if (!editEngineAvailable) return
         val pageIndex = currentPageIndex
         viewModelScope.launch {
+            val engineIndexBefore = pdfEditEngine.annotationCount(pageIndex)
             val added = pdfEditEngine.addNoteAnnotation(pageIndex, xFraction, yFraction, text)
             if (added) {
                 annotationMarkersByPage.getOrPut(pageIndex) { mutableListOf() }.add(xFraction to yFraction)
-                val current = _uiState.value
-                if (current is ReaderUiState.Loaded && current.pageIndex == pageIndex) {
-                    _uiState.value = current.copy(annotationMarkers = annotationMarkersByPage[pageIndex].orEmpty())
-                }
+                annotationHistoryByPage.getOrPut(pageIndex) { mutableListOf() }
+                    .add(PageAnnotationRecord(engineIndexBefore, isNote = true, xFraction, yFraction))
+                publishAnnotationState(pageIndex)
             }
+        }
+    }
+
+    /**
+     * Adds a highlight annotation to the current page at top-left ([xFraction], [yFraction])
+     * with size ([widthFraction], [heightFraction]) — all `0f..1f` of the displayed page,
+     * top-down. No-ops if the edit engine isn't available. PDF-005.
+     */
+    fun addHighlightAt(
+        xFraction: Float,
+        yFraction: Float,
+        widthFraction: Float = DEFAULT_HIGHLIGHT_WIDTH_FRACTION,
+        heightFraction: Float = DEFAULT_HIGHLIGHT_HEIGHT_FRACTION,
+    ) {
+        if (!editEngineAvailable) return
+        val pageIndex = currentPageIndex
+        viewModelScope.launch {
+            val engineIndexBefore = pdfEditEngine.annotationCount(pageIndex)
+            val added = pdfEditEngine.addHighlightAnnotation(pageIndex, xFraction, yFraction, widthFraction, heightFraction)
+            if (added) {
+                highlightMarkersByPage.getOrPut(pageIndex) { mutableListOf() }
+                    .add(HighlightMarker(xFraction, yFraction, widthFraction, heightFraction))
+                annotationHistoryByPage.getOrPut(pageIndex) { mutableListOf() }
+                    .add(PageAnnotationRecord(engineIndexBefore, isNote = false, xFraction, yFraction))
+                publishAnnotationState(pageIndex)
+            }
+        }
+    }
+
+    /**
+     * Removes the most recently added note or highlight annotation (whichever was added
+     * last, across both types) on the current page. No-ops if there's nothing to undo on
+     * this page, or the edit engine isn't available. PDF-005.
+     */
+    fun undoLastAnnotation() {
+        if (!editEngineAvailable) return
+        val pageIndex = currentPageIndex
+        val history = annotationHistoryByPage[pageIndex]
+        val record = history?.lastOrNull() ?: return
+        viewModelScope.launch {
+            val deleted = pdfEditEngine.deleteAnnotation(pageIndex, record.engineIndex)
+            if (deleted) {
+                history.removeAt(history.size - 1)
+                if (record.isNote) {
+                    annotationMarkersByPage[pageIndex]?.remove(record.xFraction to record.yFraction)
+                } else {
+                    highlightMarkersByPage[pageIndex]?.removeAll {
+                        it.xFraction == record.xFraction && it.yFraction == record.yFraction
+                    }
+                }
+                publishAnnotationState(pageIndex)
+            }
+        }
+    }
+
+    /** Republishes [ReaderUiState.Loaded]'s annotation-related fields for [pageIndex], if it's the one currently shown. */
+    private fun publishAnnotationState(pageIndex: Int) {
+        val current = _uiState.value
+        if (current is ReaderUiState.Loaded && current.pageIndex == pageIndex) {
+            _uiState.value = current.copy(
+                annotationMarkers = annotationMarkersByPage[pageIndex].orEmpty(),
+                highlightMarkers = highlightMarkersByPage[pageIndex].orEmpty(),
+                canUndoAnnotation = annotationHistoryByPage[pageIndex].orEmpty().isNotEmpty(),
+            )
         }
     }
 
@@ -807,6 +894,8 @@ class ReaderViewModel(
         _uiState.value = ReaderUiState.Loading
         pageCacheLock.withLock { pageCache.clear() }
         annotationMarkersByPage.clear()
+        highlightMarkersByPage.clear()
+        annotationHistoryByPage.clear()
         pageRotationsDegrees.clear()
         signatureStampsByPage.clear()
         _pageOpMessage.value = null
@@ -918,6 +1007,8 @@ class ReaderViewModel(
                 formFields = formFields,
                 attachments = attachments,
                 outline = outline,
+                highlightMarkers = highlightMarkersByPage[pageIndex].orEmpty(),
+                canUndoAnnotation = annotationHistoryByPage[pageIndex].orEmpty().isNotEmpty(),
             )
         } else {
             _uiState.value = ReaderUiState.Error(PdfOpenError.Unexpected("render returned no page"))

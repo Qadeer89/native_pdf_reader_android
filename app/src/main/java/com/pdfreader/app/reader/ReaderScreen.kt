@@ -133,6 +133,7 @@ fun ReaderScreen(
     var showSearchDialog by remember { mutableStateOf(false) }
     var showOutlineDialog by remember { mutableStateOf(false) }
     var annotateMode by rememberSaveable { mutableStateOf(false) }
+    var highlightMode by rememberSaveable { mutableStateOf(false) }
     var signatureMode by rememberSaveable { mutableStateOf(false) }
     var fitMode by rememberSaveable { mutableStateOf(PageFitMode.WIDTH) }
     var pendingNoteTap by remember { mutableStateOf<Pair<Float, Float>?>(null) }
@@ -185,7 +186,10 @@ fun ReaderScreen(
                             TextButton(
                                 onClick = {
                                     annotateMode = !annotateMode
-                                    if (annotateMode) signatureMode = false
+                                    if (annotateMode) {
+                                        signatureMode = false
+                                        highlightMode = false
+                                    }
                                 },
                             ) {
                                 Text(
@@ -195,6 +199,28 @@ fun ReaderScreen(
                                         stringResource(R.string.reader_annotate_start)
                                     },
                                 )
+                            }
+                            TextButton(
+                                onClick = {
+                                    highlightMode = !highlightMode
+                                    if (highlightMode) {
+                                        signatureMode = false
+                                        annotateMode = false
+                                    }
+                                },
+                            ) {
+                                Text(
+                                    if (highlightMode) {
+                                        stringResource(R.string.reader_highlight_done)
+                                    } else {
+                                        stringResource(R.string.reader_highlight_start)
+                                    },
+                                )
+                            }
+                            if (loaded.canUndoAnnotation) {
+                                TextButton(onClick = { viewModel.undoLastAnnotation() }) {
+                                    Text(stringResource(R.string.reader_annotation_undo))
+                                }
                             }
                             TextButton(
                                 onClick = {
@@ -289,6 +315,7 @@ fun ReaderScreen(
                                         viewModel.selectSignature(id)
                                         signatureMode = true
                                         annotateMode = false
+                                        highlightMode = false
                                     },
                                     onDelete = viewModel::deleteSignature,
                                 )
@@ -421,13 +448,15 @@ fun ReaderScreen(
                                 ZoomablePdfPage(
                                     state = current,
                                     fitMode = fitMode,
-                                    tapModeActive = annotateMode || signatureMode,
+                                    tapModeActive = annotateMode || signatureMode || highlightMode,
                                     showAnnotationMarkers = annotateMode,
                                     onTap = { xFraction, yFraction ->
                                         if (annotateMode) {
                                             pendingNoteTap = xFraction to yFraction
                                         } else if (signatureMode) {
                                             viewModel.placeSignatureAt(xFraction, yFraction)
+                                        } else if (highlightMode) {
+                                            viewModel.addHighlightAt(xFraction, yFraction)
                                         }
                                     },
                                 )
@@ -1198,6 +1227,24 @@ private fun ZoomablePdfPage(
                             (displayOffsetY + stamp.yFraction * displayHeight).toInt(),
                         ),
                         dstSize = IntSize(widthPx.toInt().coerceAtLeast(1), heightPx.toInt().coerceAtLeast(1)),
+                    )
+                }
+            }
+        }
+
+        if (state.highlightMarkers.isNotEmpty() && displayWidth > 0) {
+            Canvas(modifier = Modifier.matchParentSize()) {
+                state.highlightMarkers.forEach { highlight ->
+                    drawRect(
+                        color = Color.Yellow.copy(alpha = 0.4f),
+                        topLeft = Offset(
+                            displayOffsetX + highlight.xFraction * displayWidth,
+                            displayOffsetY + highlight.yFraction * displayHeight,
+                        ),
+                        size = androidx.compose.ui.geometry.Size(
+                            highlight.widthFraction * displayWidth,
+                            highlight.heightFraction * displayHeight,
+                        ),
                     )
                 }
             }

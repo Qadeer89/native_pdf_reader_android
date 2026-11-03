@@ -967,6 +967,25 @@ class PdfReaderViewModelSmokeTest {
         override suspend fun annotationCount(pageIndex: Int): Int =
             addedAnnotations.count { it.pageIndex == pageIndex }
 
+        override suspend fun addHighlightAnnotation(
+            pageIndex: Int,
+            xFraction: Float,
+            yFraction: Float,
+            widthFraction: Float,
+            heightFraction: Float,
+        ): Boolean {
+            if (pageIndex < 0 || pageIndex >= pageCount) return false
+            addedAnnotations += FakeNoteAnnotation(pageIndex, xFraction, yFraction, "<highlight>")
+            return true
+        }
+
+        override suspend fun deleteAnnotation(pageIndex: Int, annotationIndex: Int): Boolean {
+            val pageAnnotations = addedAnnotations.withIndex().filter { it.value.pageIndex == pageIndex }
+            val target = pageAnnotations.getOrNull(annotationIndex) ?: return false
+            addedAnnotations.removeAt(target.index)
+            return true
+        }
+
         override suspend fun pageCount(): Int = pageCount
 
         override suspend fun rotatePage(pageIndex: Int, deltaDegrees: Int): Boolean =

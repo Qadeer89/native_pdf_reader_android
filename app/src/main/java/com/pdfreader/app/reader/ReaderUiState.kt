@@ -21,6 +21,20 @@ data class SignatureStamp(
     val bitmap: Bitmap,
 )
 
+/**
+ * A highlight annotation added this session (PDF-005). Top-left corner ([xFraction],
+ * [yFraction]) plus size ([widthFraction], [heightFraction]), all normalized `0f..1f` of the
+ * displayed page, top-down — same convention as [SignatureStamp]. Drawn as a translucent
+ * yellow overlay rectangle; the actual PDF annotation (`PDAnnotationTextMarkup`) is added via
+ * [ReaderViewModel.addHighlightAt].
+ */
+data class HighlightMarker(
+    val xFraction: Float,
+    val yFraction: Float,
+    val widthFraction: Float,
+    val heightFraction: Float,
+)
+
 /** UI state for the reader screen. */
 sealed class ReaderUiState {
     data object Loading : ReaderUiState()
@@ -58,6 +72,10 @@ sealed class ReaderUiState {
          * [signatureVerifications]/[formFields]. Empty for the many PDFs with no outline.
          */
         val outline: List<PdfOutlineItem> = emptyList(),
+        /** Highlight annotations added this session on [pageIndex] — see [HighlightMarker]. */
+        val highlightMarkers: List<HighlightMarker> = emptyList(),
+        /** True if [pageIndex] has at least one session-added note/highlight annotation left to undo. */
+        val canUndoAnnotation: Boolean = false,
     ) : ReaderUiState()
 
     data class Error(val error: PdfOpenError) : ReaderUiState()
