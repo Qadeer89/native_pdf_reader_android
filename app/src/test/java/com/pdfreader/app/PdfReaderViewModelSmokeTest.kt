@@ -1053,6 +1053,15 @@ class PdfReaderViewModelSmokeTest {
             return File.createTempFile("fake-attachment", ".bin")
         }
 
+        var searchResults: List<com.pdfreader.app.model.PdfSearchMatch> = emptyList()
+
+        override suspend fun searchText(query: String): List<com.pdfreader.app.model.PdfSearchMatch> =
+            if (query.isBlank()) emptyList() else searchResults
+
+        var outlineResult: List<com.pdfreader.app.model.PdfOutlineItem> = emptyList()
+
+        override suspend fun listOutline(): List<com.pdfreader.app.model.PdfOutlineItem> = outlineResult
+
         override suspend fun writeValidatedTempCopy(): File = File.createTempFile("fake-edit", ".pdf")
 
         override suspend fun renderPage(pageIndex: Int, targetWidthPx: Int): Bitmap? {

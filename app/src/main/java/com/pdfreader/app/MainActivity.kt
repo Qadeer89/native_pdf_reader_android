@@ -12,8 +12,9 @@ import androidx.activity.viewModels
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.AbstractSavedStateViewModelFactory
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import com.pdfreader.app.data.documents.ContentResolverDestinationWriter
 import com.pdfreader.app.data.documents.ContentResolverDocumentMetadataResolver
 import com.pdfreader.app.data.recents.RecentDocumentsDatabase
@@ -39,8 +40,8 @@ import com.pdfreader.app.ui.theme.PdfReaderTheme
 class MainActivity : ComponentActivity() {
 
     private val readerViewModel: ReaderViewModel by viewModels {
-        object : ViewModelProvider.Factory {
-            override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        object : AbstractSavedStateViewModelFactory(this, null) {
+            override fun <T : ViewModel> create(key: String, modelClass: Class<T>, handle: SavedStateHandle): T {
                 @Suppress("UNCHECKED_CAST")
                 return ReaderViewModel(
                     pdfEngine = PlatformPdfRendererEngine(context = applicationContext),
@@ -56,6 +57,7 @@ class MainActivity : ComponentActivity() {
                     signingIdentityManager = AndroidKeystoreSigningIdentityManager(),
                     pkcs12Loader = BouncyCastlePkcs12SigningMaterialLoader(),
                     bytesUriReader = ContentResolverBytesUriReader(applicationContext),
+                    savedStateHandle = handle,
                 ) as T
             }
         }

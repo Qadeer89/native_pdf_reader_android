@@ -5,6 +5,7 @@ import com.pdfreader.app.data.documents.DocumentMetadata
 import com.pdfreader.app.model.PdfAttachment
 import com.pdfreader.app.model.PdfFormField
 import com.pdfreader.app.model.PdfOpenError
+import com.pdfreader.app.model.PdfOutlineItem
 import com.pdfreader.app.model.SignatureVerificationResult
 
 /**
@@ -51,6 +52,12 @@ sealed class ReaderUiState {
          */
         val formFields: List<PdfFormField> = emptyList(),
         val attachments: List<PdfAttachment> = emptyList(),
+        /**
+         * The document's outline/bookmark tree (PDF-002/PDF-004), computed once when the
+         * document was opened — same "computed once, not session-staged" shape as
+         * [signatureVerifications]/[formFields]. Empty for the many PDFs with no outline.
+         */
+        val outline: List<PdfOutlineItem> = emptyList(),
     ) : ReaderUiState()
 
     data class Error(val error: PdfOpenError) : ReaderUiState()

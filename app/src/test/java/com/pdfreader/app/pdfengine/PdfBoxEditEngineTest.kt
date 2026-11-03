@@ -568,4 +568,111 @@ class PdfBoxEditEngineTest {
             attachmentFile.delete()
         }
     }
+
+    /**
+     * PDF-003: [PdfEditEngine.searchText] finds every case-insensitive occurrence of a
+     * query across all pages via PDFBox's [com.tom_roush.pdfbox.text.PDFTextStripper] — the
+     * resolution of the previously-"blocked" text-search backlog item using the
+     * already-approved (DEC-001) PDFBox engine, with no new PDF-engine decision needed.
+     */
+    @Test
+    fun searchTextFindsCaseInsensitiveMatchesAcrossPages() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val engine = PdfBoxEditEngine(context, ioDispatcher = Dispatchers.Unconfined)
+        val searchFile = File.createTempFile("pdfbox-edit-engine-test-search", ".pdf")
+        try {
+            PDDocument().use { doc ->
+                val font = com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA
+                val page1 = com.tom_roush.pdfbox.pdmodel.PDPage()
+                doc.addPage(page1)
+                com.tom_roush.pdfbox.pdmodel.PDPageContentStream(doc, page1).use { stream ->
+                    stream.beginText()
+                    stream.setFont(font, 12f)
+                    stream.newLineAtOffset(10f, 700f)
+                    stream.showText("The Quick Brown Fox")
+                    stream.endText()
+                }
+                val page2 = com.tom_roush.pdfbox.pdmodel.PDPage()
+                doc.addPage(page2)
+                com.tom_roush.pdfbox.pdmodel.PDPageContentStream(doc, page2).use { stream ->
+                    stream.beginText()
+                    stream.setFont(font, 12f)
+                    stream.newLineAtOffset(10f, 700f)
+                    stream.showText("fox tracks in the snow")
+                    stream.endText()
+                }
+                doc.save(searchFile)
+            }
+
+            engine.open(PdfSource.LocalFile(searchFile))
+
+            val matches = engine.searchText("fox")
+            assertEquals(2, matches.size)
+            assertEquals(0, matches[0].pageIndex)
+            assertEquals(1, matches[1].pageIndex)
+
+            assertTrue("a blank query must return no matches", engine.searchText("").isEmpty())
+            assertTrue("a query with no match must return no matches", engine.searchText("elephant").isEmpty())
+
+            engine.close()
+        } finally {
+            searchFile.delete()
+        }
+    }
+
+    /**
+     * PDF-002/PDF-004: [PdfEditEngine.listOutline] flattens a nested bookmark tree in
+     * traversal order, resolving each entry's destination page via PDFBox's
+     * [com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineItem.findDestinationPage].
+     */
+    @Test
+    fun listOutlineFlattensNestedBookmarksWithResolvedPageIndices() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val engine = PdfBoxEditEngine(context, ioDispatcher = Dispatchers.Unconfined)
+        val outlineFile = File.createTempFile("pdfbox-edit-engine-test-outline", ".pdf")
+        try {
+            PDDocument().use { doc ->
+                val page1 = com.tom_roush.pdfbox.pdmodel.PDPage()
+                doc.addPage(page1)
+                val page2 = com.tom_roush.pdfbox.pdmodel.PDPage()
+                doc.addPage(page2)
+
+                val outline = com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDDocumentOutline()
+                doc.documentCatalog.documentOutline = outline
+
+                val chapter = com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineItem()
+                chapter.title = "Chapter 1"
+                chapter.destination =
+                    com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.destination.PDPageFitWidthDestination().apply {
+                        page = page1
+                    }
+                outline.addLast(chapter)
+
+                val section = com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineItem()
+                section.title = "Section 1.a"
+                section.destination =
+                    com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.destination.PDPageFitWidthDestination().apply {
+                        page = page2
+                    }
+                chapter.addLast(section)
+
+                doc.save(outlineFile)
+            }
+
+            engine.open(PdfSource.LocalFile(outlineFile))
+
+            val items = engine.listOutline()
+            assertEquals(2, items.size)
+            assertEquals("Chapter 1", items[0].title)
+            assertEquals(0, items[0].depth)
+            assertEquals(0, items[0].pageIndex)
+            assertEquals("Section 1.a", items[1].title)
+            assertEquals(1, items[1].depth)
+            assertEquals(1, items[1].pageIndex)
+
+            engine.close()
+        } finally {
+            outlineFile.delete()
+        }
+    }
 }

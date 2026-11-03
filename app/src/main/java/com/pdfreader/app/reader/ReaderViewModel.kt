@@ -2,6 +2,7 @@ package com.pdfreader.app.reader
 
 import android.graphics.Bitmap
 import android.net.Uri
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pdfreader.app.data.documents.DestinationWriter
@@ -16,6 +17,8 @@ import com.pdfreader.app.model.PdfAttachment
 import com.pdfreader.app.model.PdfFormField
 import com.pdfreader.app.model.PdfOpenError
 import com.pdfreader.app.model.PdfOpenResult
+import com.pdfreader.app.model.PdfOutlineItem
+import com.pdfreader.app.model.PdfSearchMatch
 import com.pdfreader.app.model.PdfSource
 import com.pdfreader.app.model.SignatureVerificationResult
 import com.pdfreader.app.pdfengine.AssetPdfCopier
@@ -41,6 +44,8 @@ private const val TARGET_RENDER_WIDTH_PX = 1080
 private const val THUMBNAIL_WIDTH_PX = 160
 private const val DEFAULT_NOTE_TEXT = "Note"
 private const val DEFAULT_SIGNATURE_WIDTH_FRACTION = 0.35f
+private const val KEY_LAST_OPEN_URI = "reader_last_open_uri"
+private const val KEY_LAST_PAGE_INDEX = "reader_last_page_index"
 
 enum class PageLayoutMode { SINGLE, CONTINUOUS }
 
@@ -77,6 +82,7 @@ class ReaderViewModel(
     private val bytesUriReader: BytesUriReader,
     private val fixtureAssetPath: String = "fixtures/sample.pdf",
     private val clock: () -> Long = System::currentTimeMillis,
+    private val savedStateHandle: SavedStateHandle = SavedStateHandle(),
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<ReaderUiState>(ReaderUiState.Loading)
@@ -156,6 +162,9 @@ class ReaderViewModel(
     private var currentPageIndex: Int = 0
     private var editEngineAvailable: Boolean = false
 
+    /** Set once in [init] from [savedStateHandle], consumed by the first [openSource] after process restoration. */
+    private var restorePendingPageIndex: Int? = null
+
     /**
      * True for the lifetime of a document that [pdfEditEngine] could open (with the right
      * password) but `android.graphics.pdf.PdfRenderer` (behind [pdfEngine]) could never open
@@ -181,6 +190,16 @@ class ReaderViewModel(
     private var formFields: List<PdfFormField> = emptyList()
     private var attachments: List<PdfAttachment> = emptyList()
 
+    /** The currently open document's outline/bookmark tree — see [openSource]. PDF-002/PDF-004. */
+    private var outline: List<PdfOutlineItem> = emptyList()
+
+    /** Results of the most recent [searchText] call, this session only — PDF-003. */
+    private val _searchResults = MutableStateFlow<List<PdfSearchMatch>>(emptyList())
+    val searchResults: StateFlow<List<PdfSearchMatch>> = _searchResults.asStateFlow()
+
+    private val _fullScreen = MutableStateFlow(false)
+    val fullScreen: StateFlow<Boolean> = _fullScreen.asStateFlow()
+
     /**
      * Cache of already-rendered page/thumbnail bitmaps for the currently open document,
      * keyed by `"$pageIndex@$widthPx"` — distinct sizes (thumbnail vs. full page) are
@@ -192,7 +211,17 @@ class ReaderViewModel(
     private val pageCache = mutableMapOf<String, Bitmap>()
 
     init {
-        loadFixture()
+        val restoredUri = savedStateHandle.get<String>(KEY_LAST_OPEN_URI)
+        if (restoredUri != null) {
+            // PDF-013/process-death restoration: reopen the document the user had open
+            // before the process was killed in the background, instead of the bundled
+            // fixture — [restorePendingPageIndex] is consumed once rendering succeeds, in
+            // [openSource], so a subsequent fresh [openDocument] doesn't also jump pages.
+            restorePendingPageIndex = savedStateHandle.get<Int>(KEY_LAST_PAGE_INDEX)
+            openDocument(Uri.parse(restoredUri))
+        } else {
+            loadFixture()
+        }
         viewModelScope.launch { refreshSavedSignatures() }
         viewModelScope.launch { refreshSigningIdentities() }
     }
@@ -222,6 +251,7 @@ class ReaderViewModel(
 
     /** Opens a document the user picked via the SAF document picker or a share intent. */
     fun openDocument(uri: Uri) {
+        savedStateHandle[KEY_LAST_OPEN_URI] = uri.toString()
         viewModelScope.launch {
             val metadata = metadataResolver.resolve(uri.toString())
             openSource(
@@ -261,9 +291,33 @@ class ReaderViewModel(
         goToPage(currentPageIndex - 1)
     }
 
-    /** Jumps directly to [pageIndex] (0-based), e.g. from the thumbnail strip. */
+    /** Jumps directly to [pageIndex] (0-based), e.g. from the thumbnail strip or outline. */
     fun jumpToPage(pageIndex: Int) {
         goToPage(pageIndex)
+    }
+
+    /** PDF-002/PDF-004: toggles a chrome-free, full-screen reading mode. */
+    fun toggleFullScreen() {
+        _fullScreen.value = !_fullScreen.value
+    }
+
+    /**
+     * PDF-003: searches the currently open document for [query] via [pdfEditEngine],
+     * publishing results to [searchResults]. No-ops (clearing any previous results) if the
+     * edit engine isn't available for this document or [query] is blank.
+     */
+    fun searchText(query: String) {
+        if (!editEngineAvailable || query.isBlank()) {
+            _searchResults.value = emptyList()
+            return
+        }
+        viewModelScope.launch {
+            _searchResults.value = pdfEditEngine.searchText(query)
+        }
+    }
+
+    fun clearSearchResults() {
+        _searchResults.value = emptyList()
     }
 
     /**
@@ -708,6 +762,18 @@ class ReaderViewModel(
         }
     }
 
+    /**
+     * Consumes [restorePendingPageIndex] (set once in [init] from a restored process-death
+     * save) if it's still within [pageCount] for the document that just opened — a stale
+     * index from a differently-sized document is silently ignored rather than crashing or
+     * clamping to a confusing page.
+     */
+    private fun restoredPageIndexOrZero(): Int {
+        val pending = restorePendingPageIndex
+        restorePendingPageIndex = null
+        return if (pending != null && pending in 0 until pageCount) pending else 0
+    }
+
     private suspend fun openSource(source: PdfSource, metadata: DocumentMetadata, recentUriToRecord: String?) {
         _uiState.value = ReaderUiState.Loading
         pageCacheLock.withLock { pageCache.clear() }
@@ -716,6 +782,7 @@ class ReaderViewModel(
         signatureStampsByPage.clear()
         _pageOpMessage.value = null
         usingFallbackRenderer = false
+        _searchResults.value = emptyList()
         pendingPasswordSource = null
         pendingPasswordMetadata = null
         pendingPasswordRecentUri = null
@@ -729,13 +796,14 @@ class ReaderViewModel(
         signatureVerifications = if (editEngineAvailable) pdfEditEngine.verifySignatures() else emptyList()
         formFields = if (editEngineAvailable) pdfEditEngine.listFormFields() else emptyList()
         attachments = if (editEngineAvailable) pdfEditEngine.listAttachments() else emptyList()
+        outline = if (editEngineAvailable) pdfEditEngine.listOutline() else emptyList()
 
         val engineResult = pdfEngine.open(source)
         when {
             engineResult is PdfOpenResult.Success -> {
                 pageCount = engineResult.document.pageCount
                 currentPageIndex = 0
-                renderAndPublish(0, metadata)
+                renderAndPublish(restoredPageIndexOrZero(), metadata)
                 recordRecentIfNeeded(recentUriToRecord, metadata)
             }
             // android.graphics.pdf.PdfRenderer has no way to supply a password at this
@@ -749,7 +817,7 @@ class ReaderViewModel(
                 usingFallbackRenderer = true
                 pageCount = editOpenResult.document.pageCount
                 currentPageIndex = 0
-                renderAndPublish(0, metadata)
+                renderAndPublish(restoredPageIndexOrZero(), metadata)
                 recordRecentIfNeeded(recentUriToRecord, metadata)
             }
             engineResult is PdfOpenResult.Failure && engineResult.error is PdfOpenError.PasswordProtected -> {
@@ -805,6 +873,9 @@ class ReaderViewModel(
         val currentMetadata = metadata ?: (_uiState.value as? ReaderUiState.Loaded)?.documentMetadata
         if (bitmap != null) {
             currentPageIndex = pageIndex
+            if (savedStateHandle.get<String>(KEY_LAST_OPEN_URI) != null) {
+                savedStateHandle[KEY_LAST_PAGE_INDEX] = pageIndex
+            }
             _uiState.value = ReaderUiState.Loaded(
                 pageIndex = pageIndex,
                 pageCount = pageCount,
@@ -817,6 +888,7 @@ class ReaderViewModel(
                 signatureVerifications = signatureVerifications,
                 formFields = formFields,
                 attachments = attachments,
+                outline = outline,
             )
         } else {
             _uiState.value = ReaderUiState.Error(PdfOpenError.Unexpected("render returned no page"))

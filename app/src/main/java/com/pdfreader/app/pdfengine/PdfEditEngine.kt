@@ -4,6 +4,8 @@ import android.graphics.Bitmap
 import com.pdfreader.app.model.PdfAttachment
 import com.pdfreader.app.model.PdfFormField
 import com.pdfreader.app.model.PdfOpenResult
+import com.pdfreader.app.model.PdfOutlineItem
+import com.pdfreader.app.model.PdfSearchMatch
 import com.pdfreader.app.model.PdfSource
 import com.pdfreader.app.model.SignatureVerificationResult
 import java.io.File
@@ -187,6 +189,24 @@ interface PdfEditEngine {
      * open or the page index is out of range.
      */
     suspend fun renderPage(pageIndex: Int, targetWidthPx: Int): Bitmap?
+
+    /**
+     * Case-insensitive substring search for [query] across every page of the currently
+     * open document, via PDFBox's text extraction (`PDFTextStripper`) — resolves the
+     * previously "blocked" PDF-003 gap without a new PDF-engine decision, since PDFBox was
+     * already approved as DEC-001 and is already opened alongside every document regardless
+     * of which engine renders pages. Returns one [PdfSearchMatch] per occurrence (a page
+     * with 3 hits produces 3 entries), in page order; a blank [query] or no open document
+     * returns an empty list, never an error.
+     */
+    suspend fun searchText(query: String): List<PdfSearchMatch>
+
+    /**
+     * Lists the currently open document's outline/bookmark tree (PDF-002/PDF-004),
+     * flattened in traversal order with each entry's [PdfOutlineItem.depth]. Returns an
+     * empty list if the document has no outline or none is open — most PDFs have none.
+     */
+    suspend fun listOutline(): List<PdfOutlineItem>
 
     /** Releases any resources held by the currently open document, if any. */
     suspend fun close()

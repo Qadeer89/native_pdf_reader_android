@@ -66,6 +66,8 @@ import com.pdfreader.app.data.recents.RecentDocumentEntity
 import com.pdfreader.app.data.signatures.SavedSignature
 import com.pdfreader.app.model.PdfAttachment
 import com.pdfreader.app.model.PdfFormField
+import com.pdfreader.app.model.PdfOutlineItem
+import com.pdfreader.app.model.PdfSearchMatch
 import com.pdfreader.app.model.SignatureVerificationResult
 import com.pdfreader.app.signing.SigningIdentity
 
@@ -112,6 +114,8 @@ fun ReaderScreen(
     val insertAwaitingPosition by viewModel.insertAwaitingPosition.collectAsState()
     val passwordRequired by viewModel.passwordRequired.collectAsState()
     val passwordError by viewModel.passwordError.collectAsState()
+    val searchResults by viewModel.searchResults.collectAsState()
+    val fullScreen by viewModel.fullScreen.collectAsState()
     var showRecentMenu by remember { mutableStateOf(false) }
     var showPageMenu by remember { mutableStateOf(false) }
     var showSignMenu by remember { mutableStateOf(false) }
@@ -124,6 +128,8 @@ fun ReaderScreen(
     var showMovePageDialog by remember { mutableStateOf(false) }
     var showFormFieldsDialog by remember { mutableStateOf(false) }
     var showAttachmentsDialog by remember { mutableStateOf(false) }
+    var showSearchDialog by remember { mutableStateOf(false) }
+    var showOutlineDialog by remember { mutableStateOf(false) }
     var annotateMode by rememberSaveable { mutableStateOf(false) }
     var signatureMode by rememberSaveable { mutableStateOf(false) }
     var fitMode by rememberSaveable { mutableStateOf(PageFitMode.WIDTH) }
@@ -131,6 +137,7 @@ fun ReaderScreen(
 
     Scaffold(
         topBar = {
+            if (fullScreen) return@Scaffold
             TopAppBar(
                 title = {
                     val pageLabel = (state as? ReaderUiState.Loaded)?.let {
@@ -320,6 +327,23 @@ fun ReaderScreen(
                                     Text(stringResource(R.string.reader_attachments_action))
                                 }
                             }
+                            TextButton(onClick = { showSearchDialog = true }) {
+                                Text(stringResource(R.string.reader_search_action))
+                            }
+                            if (loaded.outline.isNotEmpty()) {
+                                TextButton(onClick = { showOutlineDialog = true }) {
+                                    Text(stringResource(R.string.reader_outline_action))
+                                }
+                            }
+                            TextButton(onClick = { viewModel.toggleFullScreen() }) {
+                                Text(
+                                    if (fullScreen) {
+                                        stringResource(R.string.reader_fullscreen_exit)
+                                    } else {
+                                        stringResource(R.string.reader_fullscreen_enter)
+                                    },
+                                )
+                            }
                         }
                     }
                     Box {
@@ -347,7 +371,7 @@ fun ReaderScreen(
             )
         },
         bottomBar = {
-            if (state is ReaderUiState.Loaded && layoutMode == PageLayoutMode.SINGLE) {
+            if (!fullScreen && state is ReaderUiState.Loaded && layoutMode == PageLayoutMode.SINGLE) {
                 PageNavigationBar(
                     onPrevious = viewModel::previousPage,
                     onNext = viewModel::nextPage,
@@ -527,6 +551,30 @@ fun ReaderScreen(
                     showAttachmentsDialog = false
                     onExtractAttachmentClick(name)
                 },
+            )
+        }
+        if (showSearchDialog) {
+            SearchDialog(
+                results = searchResults,
+                onQueryChanged = { query -> viewModel.searchText(query) },
+                onResultSelected = { pageIndex ->
+                    showSearchDialog = false
+                    viewModel.jumpToPage(pageIndex)
+                },
+                onDismiss = {
+                    showSearchDialog = false
+                    viewModel.clearSearchResults()
+                },
+            )
+        }
+        if (showOutlineDialog && loadedState != null) {
+            OutlineDialog(
+                outline = loadedState.outline,
+                onItemSelected = { pageIndex ->
+                    showOutlineDialog = false
+                    viewModel.jumpToPage(pageIndex)
+                },
+                onDismiss = { showOutlineDialog = false },
             )
         }
     }
@@ -831,6 +879,97 @@ private fun AttachmentsDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.attachments_done)) }
+        },
+    )
+}
+
+/** PDF-003: a query field plus a tappable list of matches, each jumping to its page on tap. */
+@Composable
+private fun SearchDialog(
+    results: List<PdfSearchMatch>,
+    onQueryChanged: (String) -> Unit,
+    onResultSelected: (pageIndex: Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var query by rememberSaveable { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.search_title)) },
+        text = {
+            androidx.compose.foundation.layout.Column {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = {
+                        query = it
+                        onQueryChanged(it)
+                    },
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.search_label)) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (query.isNotBlank() && results.isEmpty()) {
+                    Text(stringResource(R.string.search_no_results), style = MaterialTheme.typography.labelMedium)
+                }
+                LazyColumn {
+                    items(results) { match ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onResultSelected(match.pageIndex) }
+                                .padding(vertical = 8.dp),
+                        ) {
+                            androidx.compose.foundation.layout.Column {
+                                Text(
+                                    stringResource(R.string.search_result_page, match.pageIndex + 1),
+                                    style = MaterialTheme.typography.labelMedium,
+                                )
+                                Text(match.snippet, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        HorizontalDivider()
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.search_done)) }
+        },
+    )
+}
+
+/** PDF-002/PDF-004: the document's bookmark tree, indented by depth, tappable to jump to a page. */
+@Composable
+private fun OutlineDialog(
+    outline: List<PdfOutlineItem>,
+    onItemSelected: (pageIndex: Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.outline_title)) },
+        text = {
+            LazyColumn {
+                items(outline) { item ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = (item.depth * 16).dp, top = 8.dp, bottom = 8.dp)
+                            .then(
+                                if (item.pageIndex != null) {
+                                    Modifier.clickable { onItemSelected(item.pageIndex) }
+                                } else {
+                                    Modifier
+                                },
+                            ),
+                    ) {
+                        Text(item.title)
+                    }
+                    HorizontalDivider()
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.outline_done)) }
         },
     )
 }

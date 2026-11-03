@@ -46,6 +46,17 @@
     <string name="attachments_done">Done</string>
     <string name="attachment_extract_saving">Extracting attachment…</string>
     <string name="attachment_extract_success">Saved the attachment.</string>
+    <string name="reader_search_action">Search</string>
+    <string name="search_title">Search document</string>
+    <string name="search_label">Find text</string>
+    <string name="search_no_results">No matches found.</string>
+    <string name="search_result_page">Page %1$d</string>
+    <string name="search_done">Done</string>
+    <string name="reader_outline_action">Bookmarks</string>
+    <string name="outline_title">Bookmarks</string>
+    <string name="outline_done">Done</string>
+    <string name="reader_fullscreen_enter">Full screen</string>
+    <string name="reader_fullscreen_exit">Exit full screen</string>
     <string name="reader_page_menu_action">Page</string>
     <string name="reader_page_rotate">Rotate 90°</string>
     <string name="reader_page_delete">Delete this page</string>

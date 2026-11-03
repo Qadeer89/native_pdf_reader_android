@@ -7,8 +7,12 @@ import com.pdfreader.app.model.PdfDocumentHandle
 import com.pdfreader.app.model.PdfFormField
 import com.pdfreader.app.model.PdfOpenError
 import com.pdfreader.app.model.PdfOpenResult
+import com.pdfreader.app.model.PdfOutlineItem
+import com.pdfreader.app.model.PdfSearchMatch
 import com.pdfreader.app.model.PdfSource
 import com.pdfreader.app.model.SignatureVerificationResult
+import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineNode
+import com.tom_roush.pdfbox.text.PDFTextStripper
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
@@ -52,6 +56,7 @@ import org.bouncycastle.operator.jcajce.JcaDigestCalculatorProviderBuilder
 import org.bouncycastle.util.CollectionStore
 
 private const val NOTE_ANNOTATION_SIZE_POINTS = 20f
+private const val SEARCH_SNIPPET_CONTEXT_CHARS = 24
 
 /**
  * [PdfEditEngine] backed by PDFBox-Android (approved as DEC-001; see
@@ -575,6 +580,63 @@ class PdfBoxEditEngine(
         val result = mutableMapOf<String, PDComplexFileSpecification>()
         node.kids?.forEach { kid -> result.putAll(collectNames(kid)) }
         return result
+    }
+
+    override suspend fun searchText(query: String): List<PdfSearchMatch> = withContext(ioDispatcher) {
+        lock.withLock {
+            val doc = document ?: return@withContext emptyList()
+            if (query.isBlank()) return@withContext emptyList()
+            val matches = mutableListOf<PdfSearchMatch>()
+            for (pageIndex in 0 until doc.numberOfPages) {
+                val pageText = try {
+                    PDFTextStripper().apply {
+                        startPage = pageIndex + 1
+                        endPage = pageIndex + 1
+                    }.getText(doc)
+                } catch (e: IOException) {
+                    continue
+                }
+                var searchFrom = 0
+                while (true) {
+                    val matchIndex = pageText.indexOf(query, searchFrom, ignoreCase = true)
+                    if (matchIndex < 0) break
+                    val snippetStart = (matchIndex - SEARCH_SNIPPET_CONTEXT_CHARS).coerceAtLeast(0)
+                    val snippetEnd = (matchIndex + query.length + SEARCH_SNIPPET_CONTEXT_CHARS).coerceAtMost(pageText.length)
+                    matches += PdfSearchMatch(
+                        pageIndex = pageIndex,
+                        snippet = pageText.substring(snippetStart, snippetEnd).trim(),
+                    )
+                    searchFrom = matchIndex + query.length
+                }
+            }
+            matches
+        }
+    }
+
+    override suspend fun listOutline(): List<PdfOutlineItem> = withContext(ioDispatcher) {
+        lock.withLock {
+            val doc = document ?: return@withContext emptyList()
+            val root = doc.documentCatalog.documentOutline ?: return@withContext emptyList()
+            val result = mutableListOf<PdfOutlineItem>()
+            collectOutline(root, doc, depth = 0, result)
+            result
+        }
+    }
+
+    private fun collectOutline(node: PDOutlineNode, doc: PDDocument, depth: Int, out: MutableList<PdfOutlineItem>) {
+        var child = node.firstChild
+        while (child != null) {
+            val pageIndex = try {
+                child.findDestinationPage(doc)?.let { page -> doc.pages.indexOf(page).takeIf { it >= 0 } }
+            } catch (e: Exception) {
+                // A single malformed/unresolvable destination must not take down the rest
+                // of the outline — the title is still shown, just without navigation.
+                null
+            }
+            out += PdfOutlineItem(title = child.title ?: "", depth = depth, pageIndex = pageIndex)
+            collectOutline(child, doc, depth + 1, out)
+            child = child.nextSibling
+        }
     }
 
     override suspend fun close() = withContext(ioDispatcher) {
