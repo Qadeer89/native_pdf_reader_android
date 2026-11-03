@@ -30,6 +30,8 @@
     <string name="reader_highlight_start">Highlight</string>
     <string name="reader_highlight_done">Done highlighting</string>
     <string name="reader_annotation_undo">Undo</string>
+    <string name="reader_page_op_in_progress">Working…</string>
+    <string name="reader_page_op_cancel">Cancel</string>
     <string name="reader_export_action">Export copy</string>
     <string name="reader_export_saving">Preparing your annotated copy…</string>
     <string name="reader_export_success">Saved the annotated copy.</string>

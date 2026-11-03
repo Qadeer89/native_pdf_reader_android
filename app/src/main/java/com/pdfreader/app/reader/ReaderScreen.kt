@@ -109,6 +109,7 @@ fun ReaderScreen(
     val attachmentExtractState by viewModel.attachmentExtractState.collectAsState()
     val printState by viewModel.printState.collectAsState()
     val pageOpMessage by viewModel.pageOpMessage.collectAsState()
+    val pageOpInProgress by viewModel.pageOpInProgress.collectAsState()
     val recentDocuments by viewModel.recentDocuments.collectAsState()
     val savedSignatures by viewModel.savedSignatures.collectAsState()
     val signingIdentities by viewModel.signingIdentities.collectAsState()
@@ -473,6 +474,9 @@ fun ReaderScreen(
                     .align(Alignment.BottomCenter)
                     .padding(16.dp),
             ) {
+                if (pageOpInProgress) {
+                    PageOpProgressBanner(onCancel = viewModel::cancelPageOp)
+                }
                 PageOpMessageBanner(message = pageOpMessage, onDismiss = viewModel::acknowledgePageOpMessage)
                 ExportStateBanner(exportState = exportState, onDismiss = viewModel::acknowledgeExportState)
                 SignStateBanner(signState = signState, onDismiss = viewModel::acknowledgeSignState)
@@ -710,6 +714,22 @@ private fun PageOpMessageBanner(message: String?, onDismiss: () -> Unit) {
     if (message != null) {
         Snackbar(action = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_ok)) } }) {
             Text(message)
+        }
+    }
+}
+
+/** Shown while a merge/insert (PDF-006) is reading a whole second document — see [ReaderViewModel.pageOpInProgress]. */
+@Composable
+private fun PageOpProgressBanner(onCancel: () -> Unit) {
+    Snackbar(
+        action = { TextButton(onClick = onCancel) { Text(stringResource(R.string.reader_page_op_cancel)) } },
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            CircularProgressIndicator(modifier = Modifier.size(20.dp))
+            Text(
+                stringResource(R.string.reader_page_op_in_progress),
+                modifier = Modifier.padding(start = 12.dp),
+            )
         }
     }
 }

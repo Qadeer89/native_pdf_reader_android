@@ -31,6 +31,8 @@ import com.pdfreader.app.signing.SigningIdentityManager
 import java.io.ByteArrayOutputStream
 import java.security.PrivateKey
 import java.security.cert.X509Certificate
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -105,6 +107,19 @@ class ReaderViewModel(
      */
     private val _pageOpMessage = MutableStateFlow<String?>(null)
     val pageOpMessage: StateFlow<String?> = _pageOpMessage.asStateFlow()
+
+    /**
+     * True while [mergeDocument]/[insertDocumentAt] — the two page operations that read a
+     * whole second document and so can be slow for a large file — are running, so the UI
+     * can show a progress indicator and offer [cancelPageOp]. Cancellation is cooperative
+     * (standard `Job.cancel()`): it stops at the next suspension point inside the engine
+     * rather than guaranteed-instantly mid-copy, same caveat as any other Kotlin coroutine
+     * cancellation. PDF-006.
+     */
+    private val _pageOpInProgress = MutableStateFlow(false)
+    val pageOpInProgress: StateFlow<Boolean> = _pageOpInProgress.asStateFlow()
+
+    private var pageOpJob: Job? = null
 
     val recentDocuments: StateFlow<List<RecentDocumentEntity>> = recentDocumentsRepository.observeAll()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -540,13 +555,27 @@ class ReaderViewModel(
     /** Appends every page of [uri] to the end of the document (PDF-006 merge). Staged like [deleteCurrentPage]. */
     fun mergeDocument(uri: Uri) {
         if (!editEngineAvailable) return
-        viewModelScope.launch {
-            _pageOpMessage.value = if (pdfEditEngine.appendDocument(PdfSource.ContentUri(uri))) {
-                "Pages added. Export a copy to save this change."
-            } else {
-                "Could not add pages from that document."
+        pageOpJob?.cancel()
+        pageOpJob = viewModelScope.launch {
+            _pageOpInProgress.value = true
+            try {
+                _pageOpMessage.value = if (pdfEditEngine.appendDocument(PdfSource.ContentUri(uri))) {
+                    "Pages added. Export a copy to save this change."
+                } else {
+                    "Could not add pages from that document."
+                }
+            } catch (e: CancellationException) {
+                _pageOpMessage.value = "Cancelled."
+                throw e
+            } finally {
+                _pageOpInProgress.value = false
             }
         }
+    }
+
+    /** Cancels a running [mergeDocument]/[insertDocumentAt] — cooperative, see [pageOpInProgress]'s doc. PDF-006. */
+    fun cancelPageOp() {
+        pageOpJob?.cancel()
     }
 
     /** Remembers [uri] (a picked PDF to insert) and signals [insertAwaitingPosition] so the UI can ask where. PDF-006. */
@@ -574,11 +603,20 @@ class ReaderViewModel(
         if (!editEngineAvailable || uri == null) return
         val atIndex = atPageNumber1Based - 1
         if (atIndex < 0 || atIndex > pageCount) return
-        viewModelScope.launch {
-            _pageOpMessage.value = if (pdfEditEngine.insertDocument(PdfSource.ContentUri(uri), atIndex)) {
-                "Pages inserted. Export a copy to save this change."
-            } else {
-                "Could not insert pages from that document."
+        pageOpJob?.cancel()
+        pageOpJob = viewModelScope.launch {
+            _pageOpInProgress.value = true
+            try {
+                _pageOpMessage.value = if (pdfEditEngine.insertDocument(PdfSource.ContentUri(uri), atIndex)) {
+                    "Pages inserted. Export a copy to save this change."
+                } else {
+                    "Could not insert pages from that document."
+                }
+            } catch (e: CancellationException) {
+                _pageOpMessage.value = "Cancelled."
+                throw e
+            } finally {
+                _pageOpInProgress.value = false
             }
         }
     }
