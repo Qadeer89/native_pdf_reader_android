@@ -4,6 +4,11 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.ksp)
+    // PDF-011 (cloud sync): reads app/google-services.json, generated from the real Firebase
+    // project created 2026-11-04 (see docs/DECISIONS_AND_OPEN_QUESTIONS.md). That file is not
+    // a secret — Firebase's own docs say it's safe in a public repo; access is enforced by
+    // Firestore/Storage security rules, not by hiding the API key.
+    alias(libs.plugins.google.services)
 }
 
 // Phase 7 (release, backlog item 12): release signing scaffold. Reads from
@@ -109,6 +114,14 @@ dependencies {
     // docs/DECISIONS_AND_OPEN_QUESTIONS.md. android.graphics.pdf.PdfRenderer (PlatformPdfRendererEngine)
     // remains the engine for baseline rendering/navigation (PDF-002) — the two are not merged.
     implementation(libs.pdfbox.android)
+
+    // PDF-011 (cloud sync), gated behind the real Firebase project created 2026-11-04 (see
+    // docs/DECISIONS_AND_OPEN_QUESTIONS.md). Auth/Firestore/Storage only — no Analytics (not
+    // enabled on the Firebase project) and no Crashlytics/Performance (not decided yet).
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.auth)
+    implementation(libs.firebase.firestore)
+    implementation(libs.firebase.storage)
 
     testImplementation(libs.junit)
     // Robolectric pulls in org.bouncycastle:bcprov-jdk18on transitively (its own test
