@@ -56,3 +56,29 @@ jobs:
           name: dependency-tree
           path: dependency-tree.txt
           retention-days: 14
+
+  security-rules-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The Firestore/Storage emulators (Firebase CLI 15+) require JDK 21+; the app itself
+      # still targets/builds with JDK 17 (the build-and-test job above) — these are unrelated.
+      - name: Set up JDK 21 (emulator runtime only)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install test harness dependencies
+        working-directory: security-rules-tests
+        run: npm ci
+
+      - name: SEC-002 — Firestore/Storage rules cross-user-denial tests (emulator)
+        run: npx --yes firebase-tools@latest emulators:exec --only firestore,storage --project demo-pdf-reader "npm --prefix security-rules-tests test"

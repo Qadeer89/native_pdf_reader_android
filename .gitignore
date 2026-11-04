@@ -28,3 +28,10 @@ Thumbs.db
 
 # Downloaded build tooling (installed outside the repo, see ../tools)
 /tools/
+
+# Firebase emulator suite (SEC-002 rules tests) — local-only state/dependencies
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+security-rules-tests/node_modules/

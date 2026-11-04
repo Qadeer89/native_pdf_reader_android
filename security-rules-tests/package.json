@@ -1,0 +1,13 @@
+{
+  "name": "security-rules-tests",
+  "private": true,
+  "description": "SEC-002 (cloud authorization): Firebase Emulator Suite tests proving firestore.rules/storage.rules deny cross-user and unauthenticated access to PDF-011 cloud-sync data. Not an Android/Gradle module — run via Node against the local emulator, never against production.",
+  "scripts": {
+    "test": "mocha --exit --timeout 20000 test/*.test.js"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^3.0.4",
+    "firebase": "10.14.1",
+    "mocha": "^10.7.3"
+  }
+}

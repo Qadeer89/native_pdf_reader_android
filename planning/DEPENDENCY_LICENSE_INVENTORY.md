@@ -33,6 +33,19 @@ Room's annotation processor now runs via KSP (`com.google.devtools.ksp`, version
 
 Android `android.graphics.pdf.PdfRenderer` is a platform API, not a separate dependency — no separate license entry required (Android Open Source Project, Apache-2.0, bundled with the OS).
 
+## Test tooling (not part of the Android app artifact)
+
+`security-rules-tests/` (SEC-002 — Firestore/Storage rules cross-user-denial tests, see its own README) is a standalone Node project, not a Gradle module; none of this ships in the app.
+
+| Dependency | Version | License | Source | Purpose |
+|---|---|---|---|---|
+| Firebase CLI (`firebase-tools`) | latest (invoked via `npx`, not pinned) | MIT | Google | Runs the local Firestore/Storage emulator suite that `security-rules-tests` runs against |
+| `@firebase/rules-unit-testing` | ^3.0.4 | Apache-2.0 | Google | Test-only client for asserting allow/deny against emulated rules (`assertSucceeds`/`assertFails`) |
+| `firebase` (JS SDK) | 10.14.1 | Apache-2.0 | Google | Firestore/Storage client calls the tests issue against the emulator |
+| Mocha | ^10.7.3 | MIT | OpenJS Foundation | Test runner |
+
+Added 2026-11-05 alongside the Firestore/Storage security rules themselves (`firestore.rules`, `storage.rules`, `firebase.json`). `firebase-tools` is deliberately run via `npx` rather than pinned/installed, matching Firebase's own documented usage pattern for CI; a version floor of "15+" is required (older releases don't support JDK 21, which the emulators themselves now require — see `security-rules-tests/README.md`).
+
 ## Planned, not yet added (re-verify version/license before adding)
 
 | Dependency | Candidate purpose | Phase | Status |

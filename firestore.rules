@@ -1,0 +1,22 @@
+rules_version = '2';
+
+// PDF-011 (cloud sync) / SEC-002 (cloud authorization). Document metadata lives at
+// users/{userId}/documents/{docId} — the bytes themselves live in Cloud Storage under the
+// matching path (see storage.rules). Scoping every read/write to the signed-in user's own
+// uid is the sole access-control mechanism; there is no sharing feature yet (PDF-011 notes
+// explicit share permissions as a future, not-yet-implemented requirement), so this is a
+// strict owner-only model with no exceptions. Verified by
+// security-rules-tests/test/firestore.test.js against the Firebase emulator (SEC-002).
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId}/documents/{docId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Explicit default-deny for everything else, including any future top-level
+    // collection — never rely on "no matching rule" behavior alone.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

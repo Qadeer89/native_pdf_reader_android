@@ -1,0 +1,28 @@
+rules_version = '2';
+
+// PDF-011 (cloud sync) / SEC-002 (cloud authorization). PDF bytes live at
+// users/{userId}/documents/{docId} — one object per synced document, path mirrors the
+// Firestore metadata doc at the same {userId}/{docId} (see firestore.rules). Owner-only
+// access, same as Firestore. Writes are also capped at 200MB and restricted to
+// application/pdf, mirroring PdfOpenError.TooLarge in PdfBoxEditEngine/
+// PlatformPdfRendererEngine (SEC-001) so an oversized or non-PDF upload is rejected by the
+// backend too, not just by the client. Verified by security-rules-tests/test/storage.test.js
+// against the Firebase emulator (SEC-002).
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{userId}/documents/{docId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      // request.resource is null on a delete (there's no new object) — only apply the
+      // size/content-type guard to an actual create/update, never fail a delete on it.
+      allow write: if request.auth != null && request.auth.uid == userId
+        && (request.resource == null
+          || (request.resource.size < 200 * 1024 * 1024
+            && request.resource.contentType == 'application/pdf'));
+    }
+
+    // Explicit default-deny for every other path.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
