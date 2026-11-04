@@ -15,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.lifecycle.AbstractSavedStateViewModelFactory
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
+import com.pdfreader.app.ads.ConsentManager
 import com.pdfreader.app.data.documents.ContentResolverDestinationWriter
 import com.pdfreader.app.data.documents.ContentResolverDocumentMetadataResolver
 import com.pdfreader.app.data.recents.RecentDocumentsDatabase
@@ -38,6 +39,9 @@ import com.pdfreader.app.ui.theme.PdfReaderTheme
  * [ReaderViewModel]'s dependencies without a DI framework.
  */
 class MainActivity : ComponentActivity() {
+
+    /** DEC-004: gates every ad request behind Google's UMP consent flow. */
+    private val consentManager by lazy { ConsentManager(this) }
 
     private val readerViewModel: ReaderViewModel by viewModels {
         object : AbstractSavedStateViewModelFactory(this, null) {
@@ -189,6 +193,11 @@ class MainActivity : ComponentActivity() {
 
         handleViewOrShareIntent(intent)
 
+        // DEC-004: kick off the UMP consent flow as early as possible; BannerAdView never
+        // loads an ad until consentManager.canRequestAds reports true regardless of when
+        // this completes, so there's no race with the UI below.
+        consentManager.requestConsentAndLoadFormIfRequired {}
+
         setContent {
             PdfReaderTheme {
                 val printState by readerViewModel.printState.collectAsState()
@@ -226,6 +235,7 @@ class MainActivity : ComponentActivity() {
                         pendingSignAction = PendingSignAction.WithPkcs12(password)
                         signDestinationLauncher.launch(suggestedName)
                     },
+                    canRequestAds = consentManager.canRequestAds,
                 )
             }
         }

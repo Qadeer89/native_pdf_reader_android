@@ -123,6 +123,12 @@ dependencies {
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.storage)
 
+    // Mobile ads (DEC-004, docs/DECISIONS_AND_OPEN_QUESTIONS.md): AdMob + the UMP consent
+    // SDK that gates every ad request. Ships with Google's own published test App
+    // ID/ad-unit ID (see AndroidManifest.xml / AdIds.kt) until a real AdMob account exists.
+    implementation(libs.play.services.ads)
+    implementation(libs.user.messaging.platform)
+
     testImplementation(libs.junit)
     // Robolectric pulls in org.bouncycastle:bcprov-jdk18on transitively (its own test
     // infra), which collides on the classpath with the bcprov/bcpkix-jdk15to18:1.72 that

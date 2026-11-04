@@ -117,6 +117,12 @@ fun ReaderScreen(
     onExtractCurrentPageClick: (suggestedName: String) -> Unit,
     onExtractAttachmentClick: (name: String) -> Unit,
     onExtractAllAttachmentsClick: () -> Unit,
+    /**
+     * DEC-004 (`docs/DECISIONS_AND_OPEN_QUESTIONS.md`): drives the bottom banner ad. Null
+     * (the default) renders no ad at all — used by every existing test/preview of this
+     * screen, which have no [com.pdfreader.app.ads.ConsentManager] to supply.
+     */
+    canRequestAds: kotlinx.coroutines.flow.StateFlow<Boolean>? = null,
 ) {
     val state by viewModel.uiState.collectAsState()
     val layoutMode by viewModel.layoutMode.collectAsState()
@@ -431,11 +437,17 @@ fun ReaderScreen(
             )
         },
         bottomBar = {
-            if (!fullScreen && state is ReaderUiState.Loaded && layoutMode == PageLayoutMode.SINGLE) {
-                PageNavigationBar(
-                    onPrevious = viewModel::previousPage,
-                    onNext = viewModel::nextPage,
-                )
+            if (!fullScreen) {
+                androidx.compose.foundation.layout.Column {
+                    if (state is ReaderUiState.Loaded && layoutMode == PageLayoutMode.SINGLE) {
+                        PageNavigationBar(
+                            onPrevious = viewModel::previousPage,
+                            onNext = viewModel::nextPage,
+                        )
+                    }
+                    // DEC-004: single banner ad at the bottom of the reader screen.
+                    canRequestAds?.let { com.pdfreader.app.ads.BannerAdView(canRequestAds = it) }
+                }
             }
         },
     ) { innerPadding ->

@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- PDF-011 (Firebase cloud sync) and DEC-004 (AdMob ads) both need network access;
+         neither existed in the manifest before (no network calls were made until now). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
     <application
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -10,6 +15,13 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.PdfReader"
         android:usesCleartextTraffic="false">
+
+        <!-- DEC-004: Google's own published TEST App ID — safe for a public repo, must be
+             replaced with the real AdMob App ID once the user creates a real AdMob account
+             (see DEC-004 consequence (2) in docs/DECISIONS_AND_OPEN_QUESTIONS.md). -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-3940256099942544~3347511713" />
 
         <activity
             android:name=".MainActivity"
