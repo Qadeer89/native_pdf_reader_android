@@ -9,6 +9,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -151,6 +153,12 @@ fun ReaderScreen(
                     Text(pageLabel)
                 },
                 actions = {
+                    // The action set below can exceed ~13 buttons once a document has forms,
+                    // attachments or an outline — a plain Row clips the overflow off-screen on
+                    // a normal phone in portrait with no way to reach it (found via real-device
+                    // testing, 2026-11-04). Scrolling horizontally keeps every action reachable
+                    // without a separate overflow-menu redesign.
+                    Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
                     val loaded = state as? ReaderUiState.Loaded
                     if (loaded != null) {
                         TextButton(onClick = { showPropertiesDialog = true }) {
@@ -407,6 +415,7 @@ fun ReaderScreen(
                     }
                     TextButton(onClick = onOpenDocumentClick) {
                         Text(stringResource(R.string.reader_open_action))
+                    }
                     }
                 },
             )
