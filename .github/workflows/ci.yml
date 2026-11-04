@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -61,7 +61,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # The Firestore/Storage emulators (Firebase CLI 15+) require JDK 21+; the app itself
       # still targets/builds with JDK 17 (the build-and-test job above) — these are unrelated.
