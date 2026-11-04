@@ -34,9 +34,13 @@ class BouncyCastlePkcs12SigningMaterialLoader(
 ) : Pkcs12SigningMaterialLoader {
 
     init {
-        if (java.security.Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
-            java.security.Security.addProvider(BouncyCastleProvider())
-        }
+        // See PdfBoxEditEngine's init block: a real device may already register something
+        // under the name "BC" (Android's own stripped provider, not ours), so a null-check
+        // guard before addProvider can silently skip registering our bundled BouncyCastle.
+        // Unconditionally replacing whatever is registered under that name avoids depending on
+        // what the OS happens to ship.
+        java.security.Security.removeProvider(BouncyCastleProvider.PROVIDER_NAME)
+        java.security.Security.insertProviderAt(BouncyCastleProvider(), 1)
     }
 
     override suspend fun load(pkcs12Bytes: ByteArray, password: CharArray): Pair<PrivateKey, List<X509Certificate>>? =

@@ -96,11 +96,15 @@ class PdfBoxEditEngine(
 
     init {
         PDFBoxResourceLoader.init(context.applicationContext)
-        // Explicitly bundled/registered, never Android's own "BC" provider — see ADR-013:
-        // Android's bundled BC crypto-algorithm support was removed in API 31.
-        if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
-            Security.addProvider(BouncyCastleProvider())
-        }
+        // Explicitly bundled/registered, never Android's own "BC" provider — see ADR-013.
+        // Real-device testing (API 34) found Android still registers *something* under the
+        // name "BC" (a stripped provider missing e.g. plain "SHA256"), so the previous
+        // null-check guard silently skipped registering our own bundled BouncyCastle and every
+        // by-name ("BC") lookup in this file resolved to Android's instead, breaking signing
+        // with "no such algorithm: SHA256 for provider BC". Unconditionally replacing whatever
+        // is registered under that name fixes it regardless of what the OS happens to ship.
+        Security.removeProvider(BouncyCastleProvider.PROVIDER_NAME)
+        Security.insertProviderAt(BouncyCastleProvider(), 1)
     }
 
     override suspend fun open(source: PdfSource): PdfOpenResult = withContext(ioDispatcher) {
