@@ -87,6 +87,21 @@ private const val MARKER_RADIUS_DP = 6f
  */
 private enum class PageFitMode { WIDTH, PAGE }
 
+/**
+ * A [TextButton] whose label is also set as its own merged [contentDescription] (real-device
+ * TalkBack testing, 2026-11-04, found that this app's plain `TextButton { Text(label) }` does
+ * not expose the label to accessibility services — the clickable node's own text/content-desc
+ * comes back empty, and the label only exists on a separate non-actionable child node, so
+ * TalkBack announces just "Button" with no label). Toolbar/navigation actions use this instead
+ * of a raw [TextButton] so the button itself always carries a readable description.
+ */
+@Composable
+private fun ToolbarTextButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    TextButton(onClick = onClick, modifier = modifier.semantics(mergeDescendants = true) { contentDescription = label }) {
+        Text(label)
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReaderScreen(
@@ -161,39 +176,43 @@ fun ReaderScreen(
                     Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
                     val loaded = state as? ReaderUiState.Loaded
                     if (loaded != null) {
-                        TextButton(onClick = { showPropertiesDialog = true }) {
-                            Text(stringResource(R.string.reader_properties_action))
-                        }
-                        TextButton(onClick = viewModel::toggleLayoutMode) {
-                            val modeLabel = if (layoutMode == PageLayoutMode.SINGLE) {
+                        ToolbarTextButton(
+                            label = stringResource(R.string.reader_properties_action),
+                            onClick = { showPropertiesDialog = true },
+                        )
+                        ToolbarTextButton(
+                            label = if (layoutMode == PageLayoutMode.SINGLE) {
                                 stringResource(R.string.reader_mode_continuous)
                             } else {
                                 stringResource(R.string.reader_mode_single)
-                            }
-                            Text(modeLabel)
-                        }
+                            },
+                            onClick = viewModel::toggleLayoutMode,
+                        )
                         if (layoutMode == PageLayoutMode.SINGLE) {
-                            TextButton(
+                            ToolbarTextButton(
+                                label = if (fitMode == PageFitMode.WIDTH) {
+                                    stringResource(R.string.reader_fit_page)
+                                } else {
+                                    stringResource(R.string.reader_fit_width)
+                                },
                                 onClick = {
                                     fitMode = if (fitMode == PageFitMode.WIDTH) PageFitMode.PAGE else PageFitMode.WIDTH
                                 },
-                            ) {
-                                Text(
-                                    if (fitMode == PageFitMode.WIDTH) {
-                                        stringResource(R.string.reader_fit_page)
-                                    } else {
-                                        stringResource(R.string.reader_fit_width)
-                                    },
-                                )
-                            }
+                            )
                         }
                         if (loaded.signatureVerifications.isNotEmpty()) {
-                            TextButton(onClick = { showSignatureStatusDialog = true }) {
-                                Text(stringResource(R.string.reader_signature_status_action))
-                            }
+                            ToolbarTextButton(
+                                label = stringResource(R.string.reader_signature_status_action),
+                                onClick = { showSignatureStatusDialog = true },
+                            )
                         }
                         if (loaded.canAnnotate && layoutMode == PageLayoutMode.SINGLE) {
-                            TextButton(
+                            ToolbarTextButton(
+                                label = if (annotateMode) {
+                                    stringResource(R.string.reader_annotate_done)
+                                } else {
+                                    stringResource(R.string.reader_annotate_start)
+                                },
                                 onClick = {
                                     annotateMode = !annotateMode
                                     if (annotateMode) {
@@ -201,16 +220,13 @@ fun ReaderScreen(
                                         highlightMode = false
                                     }
                                 },
-                            ) {
-                                Text(
-                                    if (annotateMode) {
-                                        stringResource(R.string.reader_annotate_done)
-                                    } else {
-                                        stringResource(R.string.reader_annotate_start)
-                                    },
-                                )
-                            }
-                            TextButton(
+                            )
+                            ToolbarTextButton(
+                                label = if (highlightMode) {
+                                    stringResource(R.string.reader_highlight_done)
+                                } else {
+                                    stringResource(R.string.reader_highlight_start)
+                                },
                                 onClick = {
                                     highlightMode = !highlightMode
                                     if (highlightMode) {
@@ -218,42 +234,34 @@ fun ReaderScreen(
                                         annotateMode = false
                                     }
                                 },
-                            ) {
-                                Text(
-                                    if (highlightMode) {
-                                        stringResource(R.string.reader_highlight_done)
-                                    } else {
-                                        stringResource(R.string.reader_highlight_start)
-                                    },
+                            )
+                            if (loaded.canUndoAnnotation) {
+                                ToolbarTextButton(
+                                    label = stringResource(R.string.reader_annotation_undo),
+                                    onClick = { viewModel.undoLastAnnotation() },
                                 )
                             }
-                            if (loaded.canUndoAnnotation) {
-                                TextButton(onClick = { viewModel.undoLastAnnotation() }) {
-                                    Text(stringResource(R.string.reader_annotation_undo))
-                                }
-                            }
-                            TextButton(
+                            ToolbarTextButton(
+                                label = stringResource(R.string.reader_export_action),
                                 onClick = {
                                     val baseName = loaded.documentMetadata?.displayName
                                         ?.removeSuffix(".pdf")
                                         ?: "document"
                                     onExportAnnotatedCopyClick("$baseName-annotated.pdf")
                                 },
-                            ) {
-                                Text(stringResource(R.string.reader_export_action))
-                            }
-                            TextButton(
+                            )
+                            ToolbarTextButton(
+                                label = stringResource(R.string.reader_print_action),
                                 onClick = {
                                     val baseName = loaded.documentMetadata?.displayName ?: "document.pdf"
                                     viewModel.requestPrint(baseName)
                                 },
-                            ) {
-                                Text(stringResource(R.string.reader_print_action))
-                            }
+                            )
                             Box {
-                                TextButton(onClick = { showPageMenu = true }) {
-                                    Text(stringResource(R.string.reader_page_menu_action))
-                                }
+                                ToolbarTextButton(
+                                    label = stringResource(R.string.reader_page_menu_action),
+                                    onClick = { showPageMenu = true },
+                                )
                                 PageOpsMenu(
                                     expanded = showPageMenu,
                                     onDismiss = { showPageMenu = false },
@@ -287,7 +295,12 @@ fun ReaderScreen(
                                 )
                             }
                             Box {
-                                TextButton(
+                                ToolbarTextButton(
+                                    label = if (signatureMode) {
+                                        stringResource(R.string.reader_signature_done)
+                                    } else {
+                                        stringResource(R.string.reader_signature_action)
+                                    },
                                     onClick = {
                                         if (signatureMode) {
                                             signatureMode = false
@@ -295,15 +308,7 @@ fun ReaderScreen(
                                             showSignMenu = true
                                         }
                                     },
-                                ) {
-                                    Text(
-                                        if (signatureMode) {
-                                            stringResource(R.string.reader_signature_done)
-                                        } else {
-                                            stringResource(R.string.reader_signature_action)
-                                        },
-                                    )
-                                }
+                                )
                                 SignatureMenu(
                                     expanded = showSignMenu,
                                     savedSignatures = savedSignatures,
@@ -331,19 +336,19 @@ fun ReaderScreen(
                                 )
                             }
                             if (lastPlacementForDocument != null && savedSignatures.isNotEmpty() && !signatureMode) {
-                                TextButton(
+                                ToolbarTextButton(
+                                    label = stringResource(R.string.reader_signature_place_last_position),
                                     onClick = {
                                         viewModel.selectSignature(savedSignatures.last().id)
                                         viewModel.placeSignatureAtLastPosition()
                                     },
-                                ) {
-                                    Text(stringResource(R.string.reader_signature_place_last_position))
-                                }
+                                )
                             }
                             Box {
-                                TextButton(onClick = { showDigitalSignMenu = true }) {
-                                    Text(stringResource(R.string.reader_digital_sign_action))
-                                }
+                                ToolbarTextButton(
+                                    label = stringResource(R.string.reader_digital_sign_action),
+                                    onClick = { showDigitalSignMenu = true },
+                                )
                                 val baseName = loaded.documentMetadata?.displayName
                                     ?.removeSuffix(".pdf")
                                     ?: "document"
@@ -367,38 +372,42 @@ fun ReaderScreen(
                                 )
                             }
                             if (loaded.formFields.isNotEmpty()) {
-                                TextButton(onClick = { showFormFieldsDialog = true }) {
-                                    Text(stringResource(R.string.reader_forms_action))
-                                }
-                            }
-                            if (loaded.attachments.isNotEmpty()) {
-                                TextButton(onClick = { showAttachmentsDialog = true }) {
-                                    Text(stringResource(R.string.reader_attachments_action))
-                                }
-                            }
-                            TextButton(onClick = { showSearchDialog = true }) {
-                                Text(stringResource(R.string.reader_search_action))
-                            }
-                            if (loaded.outline.isNotEmpty()) {
-                                TextButton(onClick = { showOutlineDialog = true }) {
-                                    Text(stringResource(R.string.reader_outline_action))
-                                }
-                            }
-                            TextButton(onClick = { viewModel.toggleFullScreen() }) {
-                                Text(
-                                    if (fullScreen) {
-                                        stringResource(R.string.reader_fullscreen_exit)
-                                    } else {
-                                        stringResource(R.string.reader_fullscreen_enter)
-                                    },
+                                ToolbarTextButton(
+                                    label = stringResource(R.string.reader_forms_action),
+                                    onClick = { showFormFieldsDialog = true },
                                 )
                             }
+                            if (loaded.attachments.isNotEmpty()) {
+                                ToolbarTextButton(
+                                    label = stringResource(R.string.reader_attachments_action),
+                                    onClick = { showAttachmentsDialog = true },
+                                )
+                            }
+                            ToolbarTextButton(
+                                label = stringResource(R.string.reader_search_action),
+                                onClick = { showSearchDialog = true },
+                            )
+                            if (loaded.outline.isNotEmpty()) {
+                                ToolbarTextButton(
+                                    label = stringResource(R.string.reader_outline_action),
+                                    onClick = { showOutlineDialog = true },
+                                )
+                            }
+                            ToolbarTextButton(
+                                label = if (fullScreen) {
+                                    stringResource(R.string.reader_fullscreen_exit)
+                                } else {
+                                    stringResource(R.string.reader_fullscreen_enter)
+                                },
+                                onClick = { viewModel.toggleFullScreen() },
+                            )
                         }
                     }
                     Box {
-                        TextButton(onClick = { showRecentMenu = true }) {
-                            Text(stringResource(R.string.reader_recent_action))
-                        }
+                        ToolbarTextButton(
+                            label = stringResource(R.string.reader_recent_action),
+                            onClick = { showRecentMenu = true },
+                        )
                         RecentDocumentsMenu(
                             expanded = showRecentMenu,
                             recentDocuments = recentDocuments,
@@ -413,9 +422,10 @@ fun ReaderScreen(
                             },
                         )
                     }
-                    TextButton(onClick = onOpenDocumentClick) {
-                        Text(stringResource(R.string.reader_open_action))
-                    }
+                    ToolbarTextButton(
+                        label = stringResource(R.string.reader_open_action),
+                        onClick = onOpenDocumentClick,
+                    )
                     }
                 },
             )
@@ -1795,11 +1805,13 @@ private fun PageNavigationBar(onPrevious: () -> Unit, onNext: () -> Unit) {
             .padding(8.dp),
         horizontalArrangement = Arrangement.Center,
     ) {
-        TextButton(onClick = onPrevious) {
-            Text(stringResource(R.string.reader_previous_page))
-        }
-        TextButton(onClick = onNext) {
-            Text(stringResource(R.string.reader_next_page))
-        }
+        ToolbarTextButton(
+            label = stringResource(R.string.reader_previous_page),
+            onClick = onPrevious,
+        )
+        ToolbarTextButton(
+            label = stringResource(R.string.reader_next_page),
+            onClick = onNext,
+        )
     }
 }
