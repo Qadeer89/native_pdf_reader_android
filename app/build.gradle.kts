@@ -100,6 +100,11 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
+    // Forces androidx.fragment's resolved version above 1.3.0 (androidx.activity's own
+    // ActivityResult API requirement — lintVitalRelease fails a release build otherwise).
+    // Firebase Auth's transitive play-services-auth 20.7.0 pulls fragment 1.1.0 and nothing
+    // else in the graph requested higher, so Gradle picked that stale version by default.
+    implementation(libs.androidx.fragment)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)

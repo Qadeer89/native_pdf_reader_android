@@ -2,10 +2,13 @@
 
 Tracks what a real Play Store release of this app needs. Marked `[x]` only for what has
 actually been done in this repository; everything else is `[ ]` and says exactly what is
-missing and who/what has to do it — several items are structurally impossible for an agent
-working in this environment (no JDK/Android SDK, no device/emulator, no Play Console account,
-no ability to pay for or register a developer account) and are called out as such rather than
-silently left unchecked with no explanation.
+missing and who/what has to do it. **Update (2026-11-05)**: a JDK (17 and 21) and Android SDK
+were added to this environment partway through this project, so items below originally marked
+blocked on "no JDK/Android SDK" have since been revisited and, where possible, actually done —
+each says so explicitly rather than leaving a stale blocker note. What remains genuinely
+structurally impossible for an agent (no real device/emulator network conditions, no Play
+Console account, no ability to pay for or register a developer account, no custody of a real
+signing key beyond generating it once) is still called out as such.
 
 ## 1. Signed build
 - [x] Release signing config scaffold in `app/build.gradle.kts`: reads `RELEASE_KEYSTORE_PATH`/
@@ -14,20 +17,44 @@ silently left unchecked with no explanation.
   back to the debug signing config when those keys/file are absent, so a local
   `./gradlew assembleRelease`/`bundleRelease` doesn't just fail outright — but that fallback
   build is **not** suitable for Play Store upload (debug-signed).
-- [ ] **Blocked on a human step**: generating an actual release keystore (`keytool -genkeypair
-  -v -keystore release/pdf-reader-release.jks -alias pdf-reader -keyalg RSA -keysize 2048
-  -validity 10000`) and filling in `local.properties` with its real path/passwords. This agent
-  cannot generate and then *keep secret* a real signing key in this environment — the key must
-  be created by, and stay only with, whoever will own this app's Play Console listing (losing
-  it means losing the ability to ship updates to the same app, ever).
-- [ ] **Not verified at all**: no JDK/Android SDK on this machine to actually run
-  `./gradlew bundleRelease` — the signing config above has never been exercised, not even with
-  the debug-signing fallback path.
+- [x] **Done (2026-11-05)** — a real release keystore now exists (this environment turned out
+  to have a JDK after all, unlike when the paragraph below was first written): generated with
+  `keytool -genkeypair -v -keystore release/pdf-reader-release.jks -alias pdf-reader -keyalg
+  RSA -keysize 2048 -validity 10000` (PKCS12 format — modern `keytool` requires the store and
+  key passwords to match for PKCS12, so both `RELEASE_KEYSTORE_PASSWORD`/`RELEASE_KEY_PASSWORD`
+  in `local.properties` are the same generated 32-character random value), 10,000-day validity
+  (until 2054). `local.properties` was filled in with the real path/passwords.
+  **CRITICAL — not yet done by the user**: `release/pdf-reader-release.jks` and the two
+  passwords in `local.properties` exist **only on this machine** right now. If this disk is
+  lost without a backup, every future update to this app on the Play Store becomes
+  permanently impossible (Play requires the same signing key for every update to one
+  listing — there is no recovery, support ticket, or re-issue process). **The user must, as
+  soon as possible**: (1) copy `release/pdf-reader-release.jks` to at least one other secure
+  location (a password manager's file storage, an encrypted backup drive — not a public or
+  shared cloud folder); (2) save the two passwords (keystore and key — identical) in a
+  password manager; (3) never commit either to git (already enforced by `.gitignore`'s `*.jks`
+  and `local.properties` entries, confirmed via `git check-ignore -v`).
+- [x] **Verified (2026-11-05)**: `./gradlew :app:assembleRelease :app:bundleRelease` succeeds
+  end to end (JDK 17, Gradle 8.9) and produces a real, correctly-signed
+  `app/build/outputs/apk/release/app-release.apk` and
+  `app/build/outputs/bundle/release/app-release.aab` — confirmed via `apksigner verify
+  --print-certs`, whose reported certificate DN/SHA-256 fingerprint exactly matches the
+  generated keystore's own `keytool -list -v` output (not the debug-signing fallback).
+  First attempt failed on `lintVitalRelease` (`InvalidFragmentVersionForActivityResult`,
+  10 occurrences in `MainActivity.kt`): Firebase Auth's transitive `play-services-auth`
+  pulled `androidx.fragment` down to 1.1.0 (below the 1.3.0 `androidx.activity`'s
+  `registerForActivityResult` API requires), and nothing else in the dependency graph
+  requested a higher version to win Gradle's resolution. Fixed by adding an explicit
+  `androidx.fragment:fragment-ktx:1.8.3` dependency (see `planning/DEPENDENCY_LICENSE_INVENTORY.md`)
+  to force the resolved version up; re-verified via `:app:dependencies --configuration
+  releaseRuntimeClasspath`.
 - [ ] `isMinifyEnabled` is still `false` for the release build type (unchanged from the vertical
   slice default). Turning on R8 shrinking/obfuscation for a real release is reasonable but
   risks breaking reflection-based libraries here (Room's generated code, PDFBox-Android,
-  BouncyCastle) without carefully written/tested `proguard-rules.pro` entries — not attempted
-  in this pass since there is no way to build-and-test the result on this machine.
+  BouncyCastle) without carefully written/tested `proguard-rules.pro` entries — attempting
+  this is now actually possible in this environment (a JDK/Android SDK exists), but was not
+  attempted in this pass; treat as a separate, dedicated task given the risk of a silent
+  runtime break that only R8-enabled testing would catch.
 
 ## 2. License notices
 - [x] `NOTICE.md` (repo root) lists every shipped dependency's license, generated from

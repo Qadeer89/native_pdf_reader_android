@@ -98,13 +98,22 @@ Tracks concrete work items against `docs/IMPLEMENTATION_PLAN.md` phases and `doc
   passwords from gitignored `local.properties`, falling back to debug signing when absent —
   see `local.properties.example`) and `NOTICE.md` (license notices, generated from
   `planning/DEPENDENCY_LICENSE_INVENTORY.md`) added.
-- [ ] Signed AAB/APK, Play policy review (Data Safety form, store listing, content rating,
-  privacy policy URL), and a reproducible-build verification pass are **not done** — each is
-  either blocked on a human step this agent cannot perform (generating and safekeeping a real
-  release keystore; Play Console account/billing; a public URL to host a privacy policy) or on
-  hardware this environment doesn't have (JDK/Android SDK to actually run
-  `./gradlew bundleRelease`, a device/emulator for store-listing screenshots). See
-  `docs/RELEASE_CHECKLIST.md` for the itemized breakdown of exactly what's blocked and why.
+- [x] **Signed AAB/APK — done (2026-11-05)**: a real release keystore was generated
+  (`release/pdf-reader-release.jks`, gitignored, never committed) and wired into
+  `local.properties`; `./gradlew :app:assembleRelease :app:bundleRelease` succeeds and
+  produces a genuinely signed `app-release.apk`/`app-release.aab` (verified via `apksigner
+  verify --print-certs` — certificate fingerprint matches the keystore, not the debug
+  fallback). Fixed a real `lintVitalRelease` failure along the way (stale transitive
+  `androidx.fragment` version from Firebase Auth's `play-services-auth` — see
+  `docs/RELEASE_CHECKLIST.md` §1). **The user must back up the keystore file and its
+  passwords off this machine immediately** — losing them means losing the ability to ever
+  update this app on the Play Store again; see the CRITICAL note in `docs/RELEASE_CHECKLIST.md`.
+- [ ] Play policy review (Data Safety form, store listing, content rating, privacy policy URL)
+  and a reproducible-build verification pass are **not done** — each is blocked on a human
+  step this agent cannot perform (Play Console account/billing; a public URL to host a privacy
+  policy) or on resources this environment still doesn't have (a device/emulator for
+  store-listing screenshots; a second machine to verify byte-identical reproducible builds).
+  See `docs/RELEASE_CHECKLIST.md` for the itemized breakdown of exactly what's blocked and why.
 
 ## Cross-cutting backlog items
 - [ ] Replace placeholder `applicationId` (`com.pdfreader.app`) once branding/package-name decision is made (open question in `docs/DECISIONS_AND_OPEN_QUESTIONS.md`).
