@@ -688,7 +688,12 @@ class PdfReaderViewModelSmokeTest {
         viewModel.importSignatureImage(Uri.parse("content://example/picked-image"))
 
         assertEquals(1, viewModel.savedSignatures.value.size)
-        assertEquals(importedBitmap, viewModel.savedSignatures.value.first().bitmap)
+        // Not the same Bitmap *instance* as the decoded one: importSignatureImage now runs it
+        // through removeLightBackground (PDF-007 background removal) first, which always
+        // produces a fresh Bitmap. Same dimensions is what's actually guaranteed here.
+        val saved = viewModel.savedSignatures.value.first().bitmap
+        assertEquals(importedBitmap.width, saved.width)
+        assertEquals(importedBitmap.height, saved.height)
     }
 
     @Test

@@ -119,6 +119,14 @@ class PdfBoxEditEngine(
                 PdfOpenResult.Failure(PdfOpenError.NotFound(e.message ?: source.toString()))
             } catch (e: IOException) {
                 PdfOpenResult.Failure(PdfOpenError.Malformed(e.message ?: "malformed PDF"))
+            } catch (e: StackOverflowError) {
+                // Hardening (backlog item 11): a real finding from MalformedPdfCorpusTest's
+                // deeply-nested-array fixture — PDFBox's parser uses recursive descent for
+                // nested arrays/dictionaries, so a hostile document with enough nesting can
+                // exhaust the JVM stack. Caught here (StackOverflowError is an Error, not an
+                // Exception, so it needs its own clause) and reported as Malformed instead of
+                // crashing the app outright.
+                PdfOpenResult.Failure(PdfOpenError.Malformed("document structure is too deeply nested"))
             } catch (e: Exception) {
                 PdfOpenResult.Failure(PdfOpenError.Unexpected(e.message ?: "unknown error"))
             }
