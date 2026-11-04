@@ -14,7 +14,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "17"
@@ -66,7 +66,7 @@ jobs:
       # The Firestore/Storage emulators (Firebase CLI 15+) require JDK 21+; the app itself
       # still targets/builds with JDK 17 (the build-and-test job above) — these are unrelated.
       - name: Set up JDK 21 (emulator runtime only)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "21"
