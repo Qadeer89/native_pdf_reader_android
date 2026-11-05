@@ -16,9 +16,8 @@
         android:theme="@style/Theme.PdfReader"
         android:usesCleartextTraffic="false">
 
-        <!-- DEC-004: Google's own published TEST App ID — safe for a public repo, must be
-             replaced with the real AdMob App ID once the user creates a real AdMob account
-             (see DEC-004 consequence (2) in docs/DECISIONS_AND_OPEN_QUESTIONS.md). -->
+        <!-- DEC-004: real production AdMob App ID (wired in commit 3840188), matching the
+             real Banner Ad Unit ID in AdIds.kt — both under publisher 2042589318187226. -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="ca-app-pub-2042589318187226~3472167025" />
