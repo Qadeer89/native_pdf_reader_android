@@ -12,7 +12,28 @@
           "package_name": "com.pdfreader.app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "413199071575-kk93bmgp7cuij7ed1lq5cafie2tujbe2.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.pdfreader.app",
+            "certificate_hash": "4971da1295239ea06cdbb54d65ae5726d44cb88b"
+          }
+        },
+        {
+          "client_id": "413199071575-sqpn3p619kf6epn9l5omjd3k0fkratek.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.pdfreader.app",
+            "certificate_hash": "adf5ddf9324057036d8398d5dc7801171fde6766"
+          }
+        },
+        {
+          "client_id": "413199071575-fs8p7g0i0979h4c6jh0oqcef7pgqnr45.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyAqI82DAKmgHxTFGgOFfmgbmbziCeeKaZg"
@@ -20,7 +41,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "413199071575-fs8p7g0i0979h4c6jh0oqcef7pgqnr45.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

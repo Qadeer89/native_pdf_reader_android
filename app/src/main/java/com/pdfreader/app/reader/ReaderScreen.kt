@@ -123,6 +123,13 @@ fun ReaderScreen(
      * screen, which have no [com.pdfreader.app.ads.ConsentManager] to supply.
      */
     canRequestAds: kotlinx.coroutines.flow.StateFlow<Boolean>? = null,
+    /**
+     * PDF-011/DEC-003: current signed-in cloud account, if any. Null (the default) — used by
+     * every existing test/preview of this screen — renders the signed-out state.
+     */
+    cloudUser: com.pdfreader.app.cloud.CloudUser? = null,
+    onSignInClick: () -> Unit = {},
+    onSignOutClick: () -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsState()
     val layoutMode by viewModel.layoutMode.collectAsState()
@@ -144,6 +151,7 @@ fun ReaderScreen(
     val fullScreen by viewModel.fullScreen.collectAsState()
     val lastPlacementForDocument by viewModel.lastPlacementForDocument.collectAsState()
     var showRecentMenu by remember { mutableStateOf(false) }
+    var showAccountMenu by remember { mutableStateOf(false) }
     var showPageMenu by remember { mutableStateOf(false) }
     var showSignMenu by remember { mutableStateOf(false) }
     var showDigitalSignMenu by remember { mutableStateOf(false) }
@@ -408,6 +416,26 @@ fun ReaderScreen(
                                 onClick = { viewModel.toggleFullScreen() },
                             )
                         }
+                    }
+                    Box {
+                        ToolbarTextButton(
+                            label = cloudUser?.email ?: cloudUser?.displayName
+                                ?: stringResource(R.string.reader_account_signed_out),
+                            onClick = { showAccountMenu = true },
+                        )
+                        AccountMenu(
+                            expanded = showAccountMenu,
+                            cloudUser = cloudUser,
+                            onDismiss = { showAccountMenu = false },
+                            onSignInClick = {
+                                showAccountMenu = false
+                                onSignInClick()
+                            },
+                            onSignOutClick = {
+                                showAccountMenu = false
+                                onSignOutClick()
+                            },
+                        )
                     }
                     Box {
                         ToolbarTextButton(
@@ -1171,6 +1199,42 @@ private fun RecentDocumentsMenu(
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.reader_recent_clear)) },
                 onClick = onClearHistory,
+            )
+        }
+    }
+}
+
+/**
+ * PDF-011/DEC-003: signed-out shows a single "Sign in with Google" item; signed-in shows the
+ * account's email/name (disabled, display-only) and a "Sign out" item. Deliberately minimal —
+ * no sync-status list or per-document upload UI here yet (tracked separately,
+ * `planning/IMPLEMENTATION_BACKLOG.md` PDF-011 item 4); this menu only proves the real
+ * sign-in/sign-out round trip against the real Firebase project.
+ */
+@Composable
+private fun AccountMenu(
+    expanded: Boolean,
+    cloudUser: com.pdfreader.app.cloud.CloudUser?,
+    onDismiss: () -> Unit,
+    onSignInClick: () -> Unit,
+    onSignOutClick: () -> Unit,
+) {
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        if (cloudUser == null) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.reader_account_sign_in)) },
+                onClick = onSignInClick,
+            )
+        } else {
+            DropdownMenuItem(
+                text = { Text(cloudUser.email ?: cloudUser.displayName ?: cloudUser.uid) },
+                onClick = onDismiss,
+                enabled = false,
+            )
+            HorizontalDivider()
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.reader_account_sign_out)) },
+                onClick = onSignOutClick,
             )
         }
     }

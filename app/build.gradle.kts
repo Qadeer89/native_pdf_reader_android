@@ -134,6 +134,18 @@ dependencies {
     implementation(libs.play.services.ads)
     implementation(libs.user.messaging.platform)
 
+    // PDF-011 (cloud sync): real Google Sign-In via Credential Manager, gated behind
+    // Authentication being enabled for the Google provider in the real Firebase project
+    // (done 2026-11-05 — google-services.json now has an oauth_client web client entry,
+    // which the google-services plugin turns into R.string.default_web_client_id below).
+    implementation(libs.androidx.credentials)
+    implementation(libs.androidx.credentials.play.services.auth)
+    implementation(libs.googleid)
+    // Already present transitively (pulled in by the Credential Manager/Firebase stack
+    // above) — declared explicitly because app code calls its Task.await() extension
+    // directly in FirebaseCloudAuthRepository/FirebaseCloudSyncRepository.
+    implementation(libs.kotlinx.coroutines.play.services)
+
     testImplementation(libs.junit)
     // Robolectric pulls in org.bouncycastle:bcprov-jdk18on transitively (its own test
     // infra), which collides on the classpath with the bcprov/bcpkix-jdk15to18:1.72 that
