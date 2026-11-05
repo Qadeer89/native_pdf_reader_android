@@ -33,6 +33,8 @@
     <string name="note_text_default">Note</string>
     <string name="note_text_save">Save</string>
     <string name="note_text_cancel">Cancel</string>
+    <string name="note_view_edit">Edit</string>
+    <string name="note_view_delete">Delete</string>
     <string name="reader_annotate_done">Done annotating</string>
     <string name="reader_highlight_start">Highlight</string>
     <string name="reader_highlight_done">Done highlighting</string>

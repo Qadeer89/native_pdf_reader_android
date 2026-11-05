@@ -201,8 +201,8 @@ class ReaderViewModel(
      */
     private var usingFallbackRenderer: Boolean = false
 
-    /** Normalized marker positions per page index, this session only (not read back from the file). */
-    private val annotationMarkersByPage = mutableMapOf<Int, MutableList<Pair<Float, Float>>>()
+    /** Note markers per page index, this session only (not read back from the file). */
+    private val annotationMarkersByPage = mutableMapOf<Int, MutableList<NoteMarker>>()
 
     /** Highlight markers per page index, this session only — see [addHighlightAt]. PDF-005. */
     private val highlightMarkersByPage = mutableMapOf<Int, MutableList<HighlightMarker>>()
@@ -388,7 +388,8 @@ class ReaderViewModel(
             val engineIndexBefore = pdfEditEngine.annotationCount(pageIndex)
             val added = pdfEditEngine.addNoteAnnotation(pageIndex, xFraction, yFraction, text)
             if (added) {
-                annotationMarkersByPage.getOrPut(pageIndex) { mutableListOf() }.add(xFraction to yFraction)
+                annotationMarkersByPage.getOrPut(pageIndex) { mutableListOf() }
+                    .add(NoteMarker(xFraction, yFraction, text, engineIndexBefore))
                 annotationHistoryByPage.getOrPut(pageIndex) { mutableListOf() }
                     .add(PageAnnotationRecord(engineIndexBefore, isNote = true, xFraction, yFraction))
                 publishAnnotationState(pageIndex)
@@ -397,18 +398,94 @@ class ReaderViewModel(
     }
 
     /**
-     * Adds a highlight annotation to the current page at top-left ([xFraction], [yFraction])
+     * Deletes one specific note [marker] (not necessarily the last-added annotation — see
+     * [undoLastAnnotation] for that). Removing a mid-list PDF annotation shifts every later
+     * annotation's index down by one, so every other tracked [NoteMarker.engineIndex] and
+     * [PageAnnotationRecord.engineIndex] on this page that was greater than [marker]'s is
+     * decremented to stay valid.
+     */
+    fun deleteNote(pageIndex: Int, marker: NoteMarker) {
+        if (!editEngineAvailable) return
+        viewModelScope.launch {
+            val deleted = pdfEditEngine.deleteAnnotation(pageIndex, marker.engineIndex)
+            if (deleted) {
+                annotationMarkersByPage[pageIndex]?.let { list ->
+                    list.remove(marker)
+                    list.indices.forEach { i ->
+                        if (list[i].engineIndex > marker.engineIndex) {
+                            list[i] = list[i].copy(engineIndex = list[i].engineIndex - 1)
+                        }
+                    }
+                }
+                annotationHistoryByPage[pageIndex]?.let { history ->
+                    history.removeAll { it.isNote && it.engineIndex == marker.engineIndex }
+                    for (i in history.indices) {
+                        if (history[i].engineIndex > marker.engineIndex) {
+                            history[i] = history[i].copy(engineIndex = history[i].engineIndex - 1)
+                        }
+                    }
+                }
+                publishAnnotationState(pageIndex)
+            }
+        }
+    }
+
+    /** Replaces [marker]'s text by deleting it and re-adding a note with [newText] at the same position. */
+    fun editNoteText(pageIndex: Int, marker: NoteMarker, newText: String) {
+        if (!editEngineAvailable) return
+        viewModelScope.launch {
+            if (!pdfEditEngine.deleteAnnotation(pageIndex, marker.engineIndex)) return@launch
+            annotationMarkersByPage[pageIndex]?.let { list ->
+                list.remove(marker)
+                list.indices.forEach { i ->
+                    if (list[i].engineIndex > marker.engineIndex) {
+                        list[i] = list[i].copy(engineIndex = list[i].engineIndex - 1)
+                    }
+                }
+            }
+            annotationHistoryByPage[pageIndex]?.let { history ->
+                history.removeAll { it.isNote && it.engineIndex == marker.engineIndex }
+                for (i in history.indices) {
+                    if (history[i].engineIndex > marker.engineIndex) {
+                        history[i] = history[i].copy(engineIndex = history[i].engineIndex - 1)
+                    }
+                }
+            }
+            val engineIndexBefore = pdfEditEngine.annotationCount(pageIndex)
+            val added = pdfEditEngine.addNoteAnnotation(pageIndex, marker.xFraction, marker.yFraction, newText)
+            if (added) {
+                annotationMarkersByPage.getOrPut(pageIndex) { mutableListOf() }
+                    .add(NoteMarker(marker.xFraction, marker.yFraction, newText, engineIndexBefore))
+                annotationHistoryByPage.getOrPut(pageIndex) { mutableListOf() }
+                    .add(PageAnnotationRecord(engineIndexBefore, isNote = true, marker.xFraction, marker.yFraction))
+            }
+            publishAnnotationState(pageIndex)
+        }
+    }
+
+    /**
+     * Adds a highlight annotation centered on the tapped point ([tapXFraction], [tapYFraction])
      * with size ([widthFraction], [heightFraction]) — all `0f..1f` of the displayed page,
      * top-down. No-ops if the edit engine isn't available. PDF-005.
+     *
+     * Issue 2 fix: this engine has no real per-glyph text geometry to snap to (see
+     * [com.pdfreader.app.pdfengine.PdfBoxEditEngine.addHighlightAnnotation] — it places a
+     * fixed-size rectangle, not a text-bounding-box lookup), so a highlight will not reliably
+     * cover exactly one line of text of arbitrary font size. Centering the box on the tapped
+     * point (rather than treating the tap as the box's top-left corner, as before) at least
+     * makes the covered area match where the user actually touched, instead of extending only
+     * down-and-right from it.
      */
     fun addHighlightAt(
-        xFraction: Float,
-        yFraction: Float,
+        tapXFraction: Float,
+        tapYFraction: Float,
         widthFraction: Float = DEFAULT_HIGHLIGHT_WIDTH_FRACTION,
         heightFraction: Float = DEFAULT_HIGHLIGHT_HEIGHT_FRACTION,
     ) {
         if (!editEngineAvailable) return
         val pageIndex = currentPageIndex
+        val xFraction = (tapXFraction - widthFraction / 2f).coerceIn(0f, 1f - widthFraction)
+        val yFraction = (tapYFraction - heightFraction / 2f).coerceIn(0f, 1f - heightFraction)
         viewModelScope.launch {
             val engineIndexBefore = pdfEditEngine.annotationCount(pageIndex)
             val added = pdfEditEngine.addHighlightAnnotation(pageIndex, xFraction, yFraction, widthFraction, heightFraction)
@@ -437,7 +514,7 @@ class ReaderViewModel(
             if (deleted) {
                 history.removeAt(history.size - 1)
                 if (record.isNote) {
-                    annotationMarkersByPage[pageIndex]?.remove(record.xFraction to record.yFraction)
+                    annotationMarkersByPage[pageIndex]?.removeAll { it.engineIndex == record.engineIndex }
                 } else {
                     highlightMarkersByPage[pageIndex]?.removeAll {
                         it.xFraction == record.xFraction && it.yFraction == record.yFraction

@@ -89,6 +89,9 @@ private const val MIN_ZOOM_SCALE = 1f
 private const val MAX_ZOOM_SCALE = 5f
 private const val MARKER_RADIUS_DP = 6f
 
+/** Tap-hit tolerance (fraction of page width/height) for selecting an existing note marker. */
+private const val NOTE_HIT_RADIUS_FRACTION = 0.035f
+
 /**
  * Auto-sizing mode for the current page in single-page layout (PDF-002). [WIDTH] scales the
  * page to the container's width (may overflow vertically, matching this app's previous
@@ -160,6 +163,10 @@ fun ReaderScreen(
     val passwordError by viewModel.passwordError.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
     val fullScreen by viewModel.fullScreen.collectAsState()
+    // Issue 6 fix: previously nothing intercepted Back while in fullscreen, so it fell through
+    // to whatever the system/Activity default is (closing the screen) instead of exiting
+    // fullscreen first.
+    androidx.activity.compose.BackHandler(enabled = fullScreen) { viewModel.toggleFullScreen() }
     val lastPlacementForDocument by viewModel.lastPlacementForDocument.collectAsState()
     var showRecentMenu by remember { mutableStateOf(false) }
     var showAccountMenu by remember { mutableStateOf(false) }
@@ -181,6 +188,8 @@ fun ReaderScreen(
     var signatureMode by rememberSaveable { mutableStateOf(false) }
     var fitMode by rememberSaveable { mutableStateOf(PageFitMode.WIDTH) }
     var pendingNoteTap by remember { mutableStateOf<Pair<Float, Float>?>(null) }
+    var viewingNote by remember { mutableStateOf<NoteMarker?>(null) }
+    var editingNote by remember { mutableStateOf<NoteMarker?>(null) }
 
     Scaffold(
         topBar = {
@@ -550,9 +559,31 @@ fun ReaderScreen(
                                     showAnnotationMarkers = annotateMode,
                                     onTap = { xFraction, yFraction ->
                                         if (annotateMode) {
-                                            pendingNoteTap = xFraction to yFraction
+                                            // Issue 7 fix: a tap near an existing marker opens
+                                            // that note (view/edit/delete) instead of always
+                                            // creating a new one on top of it.
+                                            val hit = current.annotationMarkers.minByOrNull {
+                                                val dx = it.xFraction - xFraction
+                                                val dy = it.yFraction - yFraction
+                                                dx * dx + dy * dy
+                                            }?.takeIf {
+                                                val dx = it.xFraction - xFraction
+                                                val dy = it.yFraction - yFraction
+                                                dx * dx + dy * dy < NOTE_HIT_RADIUS_FRACTION * NOTE_HIT_RADIUS_FRACTION
+                                            }
+                                            if (hit != null) {
+                                                viewingNote = hit
+                                            } else {
+                                                pendingNoteTap = xFraction to yFraction
+                                            }
                                         } else if (signatureMode) {
+                                            // Issue 4 fix: a signature placement is a one-shot
+                                            // action — without exiting signature mode here,
+                                            // every further tap on the page would stamp another
+                                            // copy of the same signature using the still-active
+                                            // selection.
                                             viewModel.placeSignatureAt(xFraction, yFraction)
+                                            signatureMode = false
                                         } else if (highlightMode) {
                                             viewModel.addHighlightAt(xFraction, yFraction)
                                         }
@@ -583,6 +614,20 @@ fun ReaderScreen(
                     onDismiss = viewModel::acknowledgeAttachmentExtractState,
                 )
                 PrintStateBanner(printState = printState, onDismiss = viewModel::acknowledgePrintState)
+            }
+
+            // Issue 6 fix: the toolbar (and its own exit-fullscreen button) is hidden entirely
+            // while fullScreen is true, so without this there was no on-screen control left to
+            // leave fullscreen — only Back (now handled above) could do it.
+            if (fullScreen) {
+                TextButton(
+                    onClick = { viewModel.toggleFullScreen() },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(16.dp),
+                ) {
+                    Text(stringResource(R.string.reader_fullscreen_exit))
+                }
             }
         }
 
@@ -651,6 +696,32 @@ fun ReaderScreen(
                 onSave = { text ->
                     viewModel.addNoteAt(noteTap.first, noteTap.second, text)
                     pendingNoteTap = null
+                },
+            )
+        }
+        val viewedNote = viewingNote
+        if (viewedNote != null && loadedState != null) {
+            NoteViewDialog(
+                marker = viewedNote,
+                onDismiss = { viewingNote = null },
+                onEdit = {
+                    viewingNote = null
+                    editingNote = viewedNote
+                },
+                onDelete = {
+                    viewModel.deleteNote(loadedState.pageIndex, viewedNote)
+                    viewingNote = null
+                },
+            )
+        }
+        val editedNote = editingNote
+        if (editedNote != null && loadedState != null) {
+            NoteTextDialog(
+                initialText = editedNote.text,
+                onDismiss = { editingNote = null },
+                onSave = { text ->
+                    viewModel.editNoteText(loadedState.pageIndex, editedNote, text)
+                    editingNote = null
                 },
             )
         }
@@ -889,10 +960,14 @@ private fun MovePageDialog(currentPageNumber: Int, pageCount: Int, onDismiss: ()
     )
 }
 
-/** Asks for the text of a note annotation before placing it (PDF-005) — pre-filled with the same default the ViewModel otherwise falls back to when none is given. */
+/**
+ * Asks for the text of a note annotation (PDF-005) — pre-filled with the same default the
+ * ViewModel otherwise falls back to when none is given, or with [initialText] when editing an
+ * existing note (Issue 7 fix).
+ */
 @Composable
-private fun NoteTextDialog(onDismiss: () -> Unit, onSave: (text: String) -> Unit) {
-    val defaultText = stringResource(R.string.note_text_default)
+private fun NoteTextDialog(initialText: String? = null, onDismiss: () -> Unit, onSave: (text: String) -> Unit) {
+    val defaultText = initialText ?: stringResource(R.string.note_text_default)
     var text by rememberSaveable { mutableStateOf(defaultText) }
 
     AlertDialog(
@@ -913,6 +988,29 @@ private fun NoteTextDialog(onDismiss: () -> Unit, onSave: (text: String) -> Unit
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.note_text_cancel)) }
+        },
+    )
+}
+
+/**
+ * Issue 7 fix: shows a tapped note marker's actual stored text — previously tapping a marker
+ * did nothing and there was no way to read a note back. Offers Edit (reopens [NoteTextDialog]
+ * pre-filled) and Delete for that specific note.
+ */
+@Composable
+private fun NoteViewDialog(marker: NoteMarker, onDismiss: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.note_text_title)) },
+        text = { Text(marker.text) },
+        confirmButton = {
+            TextButton(onClick = onEdit) { Text(stringResource(R.string.note_view_edit)) }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onDelete) { Text(stringResource(R.string.note_view_delete)) }
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.note_text_cancel)) }
+            }
         },
     )
 }
@@ -1355,12 +1453,6 @@ private fun ZoomablePdfPage(
     var offsetY by rememberSaveable(state.pageIndex, fitMode) { mutableStateOf(0f) }
     var layoutSize by remember { mutableStateOf(IntSize.Zero) }
 
-    val transformState = rememberTransformableState { zoomChange, panChange, _ ->
-        scale = (scale * zoomChange).coerceIn(MIN_ZOOM_SCALE, MAX_ZOOM_SCALE)
-        offsetX += panChange.x
-        offsetY += panChange.y
-    }
-
     // The displayed page rect within the container, honouring `fitMode`'s contentScale —
     // needed so annotation markers/signature stamps/taps (all normalized 0f..1f against the
     // *page*, not the container) land correctly even when PAGE fit mode letterboxes the page
@@ -1377,6 +1469,19 @@ private fun ZoomablePdfPage(
     val displayHeight = bitmapHeight * displayScale
     val displayOffsetX = (layoutSize.width - displayWidth) / 2f
     val displayOffsetY = (layoutSize.height - displayHeight) / 2f
+
+    // Issue 5 fix: without this, the page can be dragged arbitrarily far off-screen even when
+    // it's already fully visible (scale == MIN_ZOOM_SCALE) since nothing previously clamped
+    // offsetX/offsetY. Pan is now bounded to how far the *scaled* content actually extends
+    // past the viewport on each axis — zero bound (no movement) once the whole page fits.
+    val transformState = rememberTransformableState { zoomChange, panChange, _ ->
+        val newScale = (scale * zoomChange).coerceIn(MIN_ZOOM_SCALE, MAX_ZOOM_SCALE)
+        scale = newScale
+        val maxOffsetX = maxOf(0f, (displayWidth * newScale - layoutSize.width) / 2f)
+        val maxOffsetY = maxOf(0f, (displayHeight * newScale - layoutSize.height) / 2f)
+        offsetX = (offsetX + panChange.x).coerceIn(-maxOffsetX, maxOffsetX)
+        offsetY = (offsetY + panChange.y).coerceIn(-maxOffsetY, maxOffsetY)
+    }
 
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         val imageModifier = Modifier

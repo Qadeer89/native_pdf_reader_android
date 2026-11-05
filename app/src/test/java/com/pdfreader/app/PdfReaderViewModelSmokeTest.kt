@@ -21,6 +21,7 @@ import com.pdfreader.app.pdfengine.AssetPdfCopier
 import com.pdfreader.app.pdfengine.PdfEditEngine
 import com.pdfreader.app.pdfengine.PdfEngine
 import com.pdfreader.app.reader.ExportState
+import com.pdfreader.app.reader.NoteMarker
 import com.pdfreader.app.reader.PageLayoutMode
 import com.pdfreader.app.reader.ReaderUiState
 import com.pdfreader.app.reader.ReaderViewModel
@@ -356,13 +357,53 @@ class PdfReaderViewModelSmokeTest {
 
         var loaded = viewModel.uiState.value as ReaderUiState.Loaded
         assertTrue("edit engine opened successfully, so annotating should be available", loaded.canAnnotate)
-        assertEquals(emptyList<Pair<Float, Float>>(), loaded.annotationMarkers)
+        assertEquals(emptyList<NoteMarker>(), loaded.annotationMarkers)
 
         viewModel.addNoteAt(0.25f, 0.5f)
         loaded = viewModel.uiState.value as ReaderUiState.Loaded
-        assertEquals(listOf(0.25f to 0.5f), loaded.annotationMarkers)
+        assertEquals(listOf(NoteMarker(0.25f, 0.5f, "Note", 0)), loaded.annotationMarkers)
         assertEquals(1, editEngine.addedAnnotations.size)
         assertEquals(0, editEngine.addedAnnotations.first().pageIndex)
+    }
+
+    @Test
+    fun deleteNoteRemovesOnlyThatNoteAndKeepsOthersRetrievable() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val editEngine = FakePdfEditEngine()
+        val viewModel = newViewModel(context, FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT), editEngine = editEngine)
+
+        viewModel.addNoteAt(0.1f, 0.1f, "first")
+        viewModel.addNoteAt(0.2f, 0.2f, "second")
+        viewModel.addNoteAt(0.3f, 0.3f, "third")
+        var loaded = viewModel.uiState.value as ReaderUiState.Loaded
+        val middle = loaded.annotationMarkers.single { it.text == "second" }
+
+        viewModel.deleteNote(0, middle)
+        loaded = viewModel.uiState.value as ReaderUiState.Loaded
+
+        assertEquals(setOf("first", "third"), loaded.annotationMarkers.map { it.text }.toSet())
+        // The later "third" note's engine index must have shifted down by one so a future
+        // delete/edit of it still targets the correct annotation.
+        assertEquals(1, loaded.annotationMarkers.single { it.text == "third" }.engineIndex)
+    }
+
+    @Test
+    fun editNoteTextReplacesStoredTextAtTheSamePosition() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val editEngine = FakePdfEditEngine()
+        val viewModel = newViewModel(context, FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT), editEngine = editEngine)
+
+        viewModel.addNoteAt(0.4f, 0.4f, "old text")
+        var loaded = viewModel.uiState.value as ReaderUiState.Loaded
+        val marker = loaded.annotationMarkers.single()
+
+        viewModel.editNoteText(0, marker, "new text")
+        loaded = viewModel.uiState.value as ReaderUiState.Loaded
+
+        val edited = loaded.annotationMarkers.single()
+        assertEquals("new text", edited.text)
+        assertEquals(0.4f, edited.xFraction)
+        assertEquals(0.4f, edited.yFraction)
     }
 
     @Test
@@ -376,7 +417,7 @@ class PdfReaderViewModelSmokeTest {
 
         viewModel.addNoteAt(0.25f, 0.5f)
         val loadedAfter = viewModel.uiState.value as ReaderUiState.Loaded
-        assertEquals(emptyList<Pair<Float, Float>>(), loadedAfter.annotationMarkers)
+        assertEquals(emptyList<NoteMarker>(), loadedAfter.annotationMarkers)
         assertEquals(0, editEngine.addedAnnotations.size)
     }
 

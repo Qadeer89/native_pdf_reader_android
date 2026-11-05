@@ -35,6 +35,19 @@ data class HighlightMarker(
     val heightFraction: Float,
 )
 
+/**
+ * A note annotation added this session (PDF-005). [text] is kept here (not just written into
+ * the PDF) so a marker tap can show it immediately without re-reading the document. [engineIndex]
+ * is this annotation's index into the page's annotation list at the time it was added — needed
+ * to delete or replace this exact annotation later ([ReaderViewModel.deleteNote]).
+ */
+data class NoteMarker(
+    val xFraction: Float,
+    val yFraction: Float,
+    val text: String,
+    val engineIndex: Int,
+)
+
 /** UI state for the reader screen. */
 sealed class ReaderUiState {
     data object Loading : ReaderUiState()
@@ -47,8 +60,8 @@ sealed class ReaderUiState {
         val pageCount: Int,
         val pageBitmap: Bitmap,
         val documentMetadata: DocumentMetadata? = null,
-        /** Normalized (0f..1f, top-down) positions of note annotations added this session on [pageIndex]. */
-        val annotationMarkers: List<Pair<Float, Float>> = emptyList(),
+        /** Note annotations added this session on [pageIndex] — see [NoteMarker]. */
+        val annotationMarkers: List<NoteMarker> = emptyList(),
         val canAnnotate: Boolean = false,
         /** Visual-only rotation feedback for [pageIndex], this session only — see [ReaderViewModel.rotateCurrentPage]. */
         val pageRotationDegrees: Int = 0,
