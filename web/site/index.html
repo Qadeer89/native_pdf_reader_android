@@ -4,74 +4,287 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PDF Reader</title>
+<meta name="description" content="A local-first PDF reader for Android — read, annotate, and sign documents, with your files staying on your device by default.">
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
 <style>
-  :root { color-scheme: light; }
+  /* Dark, document-inspired identity: a serif display face (the "printed page")
+     paired with a plain UI sans, and a mono label for file-metadata-style tags. */
+  :root {
+    --bg: #0a0d14;
+    --surface: #10141d;
+    --surface-raised: #151a25;
+    --border: #232a3a;
+    --border-soft: #1a2030;
+    --ink: #eef1f7;
+    --ink-soft: #99a3b8;
+    --ink-faint: #5e6578;
+    --accent: #5b8cff;
+    --accent-ink: #0a0d14;
+    --line: #3fc98a;
+    --font-display: 'Fraunces', Georgia, serif;
+    --font-body: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'IBM Plex Mono', 'SFMono-Regular', monospace;
+  }
   * { box-sizing: border-box; }
-  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; color: #1a1a1a; background: #fafafa; }
-  .hero { background: linear-gradient(135deg, #2b5bd7, #5a3fd6); color: #fff; padding: 64px 20px 72px; text-align: center; }
-  .logo { width: 72px; height: 72px; border-radius: 18px; margin: 0 auto 20px; display: block; }
-  .hero h1 { margin: 0 0 8px; font-size: 2.1rem; }
-  .hero p { margin: 0 auto; max-width: 480px; opacity: 0.92; font-size: 1.05rem; }
-  .cta { display: inline-block; margin-top: 28px; background: #fff; color: #2b5bd7; font-weight: 600; padding: 12px 28px; border-radius: 999px; text-decoration: none; }
-  .container { max-width: 880px; margin: 0 auto; padding: 56px 20px; }
-  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 24px; }
-  .feature { background: #fff; border: 1px solid #ececec; border-radius: 14px; padding: 22px; }
-  .feature h3 { margin: 0 0 8px; font-size: 1.05rem; }
-  .feature p { margin: 0; color: #555; font-size: 0.92rem; line-height: 1.55; }
-  .shots-section { padding: 8px 0 56px; }
-  .shots-section h2 { text-align: center; margin: 0 0 24px; font-size: 1.4rem; }
-  .shots { display: flex; gap: 18px; overflow-x: auto; padding: 4px 20px 12px; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
-  .shots img { height: 420px; width: auto; border-radius: 14px; border: 1px solid #ececec; scroll-snap-align: start; flex-shrink: 0; }
-  footer { text-align: center; padding: 32px 20px 56px; color: #777; font-size: 0.9rem; }
-  footer a { color: #2b5bd7; text-decoration: none; }
-  footer a:hover { text-decoration: underline; }
+  html { color-scheme: dark; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    padding-left: max(20px, env(safe-area-inset-left, 0px));
+    padding-right: max(20px, env(safe-area-inset-right, 0px));
+  }
+  img { max-width: 100%; }
+
+  nav {
+    max-width: 980px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-block: 22px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand img { width: 28px; height: 28px; border-radius: 7px; display: block; }
+  .brand-name { font-weight: 600; font-size: 15px; letter-spacing: 0.01em; }
+  .status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-faint);
+    margin-left: 10px;
+    padding-left: 10px;
+    border-left: 0.5px solid var(--border);
+  }
+  .status .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--line); flex-shrink: 0; }
+  nav a.navlink { color: var(--ink-soft); text-decoration: none; font-size: 14px; }
+  nav a.navlink:hover { color: var(--ink); }
+
+  .hero {
+    max-width: 780px;
+    margin: 0 auto;
+    text-align: center;
+    padding-block: 56px 32px;
+  }
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 18px;
+  }
+  .hero h1 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(2.1rem, 5.5vw, 3.1rem);
+    line-height: 1.12;
+    letter-spacing: -0.01em;
+    margin: 0 0 20px;
+    text-wrap: balance;
+  }
+  .hero h1 em { font-style: italic; color: var(--accent); }
+  .hero p.lede {
+    font-size: 17px;
+    line-height: 1.65;
+    color: var(--ink-soft);
+    max-width: 52ch;
+    margin: 0 auto 36px;
+  }
+  .cta-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 14.5px;
+    padding: 13px 22px;
+    border-radius: 11px;
+    text-decoration: none;
+    border: 0.5px solid transparent;
+  }
+  .btn-primary { background: var(--ink); color: var(--bg); }
+  .btn-ghost { background: var(--surface); color: var(--ink); border-color: var(--border); }
+  .btn .tag { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.6; display: block; margin-bottom: 1px; }
+  .btn-stack { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.3; }
+
+  .section { max-width: 980px; margin: 0 auto; padding-block: 48px; }
+  .section-head { text-align: center; max-width: 560px; margin: 0 auto 36px; }
+  .section-head .eyebrow { margin-bottom: 10px; }
+  .section-head h2 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.7rem;
+    margin: 0 0 10px;
+    text-wrap: balance;
+  }
+  .section-head p { color: var(--ink-soft); font-size: 14.5px; line-height: 1.6; margin: 0; }
+
+  .features {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1px;
+    background: var(--border-soft);
+    border: 0.5px solid var(--border-soft);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .feature { background: var(--surface); padding: 26px 24px; }
+  .feature .icon {
+    width: 36px; height: 36px; border-radius: 9px;
+    background: var(--surface-raised);
+    border: 0.5px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 16px;
+  }
+  .feature .icon svg { width: 18px; height: 18px; }
+  .feature h3 { font-size: 15px; font-weight: 600; margin: 0 0 8px; }
+  .feature p { margin: 0; color: var(--ink-soft); font-size: 13.5px; line-height: 1.6; }
+
+  .shots { display: flex; gap: 16px; overflow-x: auto; padding: 4px 4px 14px; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
+  .shot-card {
+    scroll-snap-align: start; flex-shrink: 0;
+    background: var(--surface);
+    border: 0.5px solid var(--border);
+    border-radius: 18px;
+    padding: 10px;
+  }
+  .shot-card img { height: 400px; width: auto; border-radius: 11px; display: block; }
+
+  .cli {
+    max-width: 640px; margin: 0 auto;
+    background: var(--surface);
+    border: 0.5px solid var(--border);
+    border-radius: 14px;
+    padding: 20px 24px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--ink-soft);
+    line-height: 1.8;
+  }
+  .cli .k { color: var(--line); }
+  .cli .v { color: var(--ink); }
+
+  footer {
+    max-width: 980px; margin: 0 auto;
+    padding-block: 40px 56px;
+    border-top: 0.5px solid var(--border-soft);
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 12px;
+    font-size: 13px; color: var(--ink-faint);
+  }
+  footer a { color: var(--ink-soft); text-decoration: none; }
+  footer a:hover { color: var(--ink); }
+  footer .links { display: flex; gap: 20px; }
+
+  @media (max-width: 560px) {
+    nav { flex-wrap: wrap; row-gap: 10px; }
+    .cta-row { flex-direction: column; align-items: stretch; }
+    footer { flex-direction: column; align-items: flex-start; }
+  }
 </style>
 </head>
 <body>
 
+<nav>
+  <div class="brand">
+    <img src="/logo.png" alt="PDF Reader">
+    <span class="brand-name">PDF Reader</span>
+    <span class="status"><span class="dot"></span>Android</span>
+  </div>
+  <a class="navlink" href="/privacy/">Privacy policy</a>
+</nav>
+
 <div class="hero">
-  <img class="logo" src="/logo.png" width="72" height="72" alt="PDF Reader logo">
-  <h1>PDF Reader</h1>
-  <p>A fast, local-first PDF reader for Android — read, annotate, sign, and manage your PDFs, with your files staying on your device by default.</p>
+  <p class="eyebrow">Local-first &middot; no account required</p>
+  <h1>Read, mark up, and <em>sign</em> PDFs &mdash; without handing them to the cloud.</h1>
+  <p class="lede">PDF Reader keeps every file on your device. Open, annotate, merge, and apply a real digital signature &mdash; no account, no cloud, nothing ever leaves your phone.</p>
+  <div class="cta-row">
+    <a class="btn btn-primary" href="#screenshots">
+      <span class="btn-stack"><span class="tag">Coming soon</span>Get it on Google Play</span>
+    </a>
+    <a class="btn btn-ghost" href="/privacy/">Read the privacy policy</a>
+  </div>
 </div>
 
-<div class="container">
+<div class="section">
+  <div class="section-head">
+    <p class="eyebrow">What it does</p>
+    <h2>Everything a PDF needs, in one reader</h2>
+    <p>No bloat, no forced sign-in, no file upload to a third-party server to "process" your document.</p>
+  </div>
   <div class="features">
     <div class="feature">
+      <div class="icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#5b8cff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 16h6M9 10h2"/></svg>
+      </div>
       <h3>Read &amp; navigate</h3>
-      <p>Smooth zoom, continuous or single-page scrolling, bookmarks, search, and full-screen reading.</p>
+      <p>Smooth zoom, continuous or single-page scrolling, bookmarks, full-text search, and a distraction-free full-screen mode.</p>
     </div>
     <div class="feature">
+      <div class="icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#5b8cff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+      </div>
       <h3>Annotate &amp; edit</h3>
-      <p>Highlights, notes, page rotate/move/merge/extract, and form filling — all without leaving the app.</p>
+      <p>Highlights and sticky notes, plus page rotate, move, merge, and extract &mdash; and fill out form fields in place.</p>
     </div>
     <div class="feature">
+      <div class="icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#5b8cff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17v3h3l10-10-3-3Z"/><path d="M14 7l3 3"/><path d="M4 20h4"/><path d="M18 9l1.5-1.5a1.5 1.5 0 0 0-3-3L15 6"/></svg>
+      </div>
       <h3>Sign documents</h3>
-      <p>Draw, type, or import a signature, or apply a real digital (cryptographic) signature to a document.</p>
+      <p>Draw, type, or import a signature for everyday use, or apply a real certificate-based digital signature when it matters.</p>
     </div>
     <div class="feature">
+      <div class="icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#5b8cff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+      </div>
       <h3>Private by default</h3>
-      <p>Your documents stay on your device. Signing in and cloud sync are optional, and off unless you turn them on.</p>
+      <p>Documents stay on your device. There's no account and no cloud storage &mdash; nothing to opt out of.</p>
     </div>
   </div>
 </div>
 
-<div class="shots-section">
-  <h2>See it in action</h2>
+<div class="section" id="screenshots">
+  <div class="section-head">
+    <p class="eyebrow">See it in action</p>
+    <h2>The reader, on a real document</h2>
+    <p>Reading view, a page with a data table, inline annotation, and the signature dialog.</p>
+  </div>
   <div class="shots">
-    <img src="/screenshots/01_cover.jpg" alt="Reading a PDF in PDF Reader" loading="lazy">
-    <img src="/screenshots/02_metrics.jpg" alt="A PDF page with a table, shown in PDF Reader" loading="lazy">
-    <img src="/screenshots/03_annotate.jpg" alt="Annotating a PDF in PDF Reader" loading="lazy">
-    <img src="/screenshots/04_sign.jpg" alt="Signing a PDF in PDF Reader" loading="lazy">
+    <div class="shot-card"><img src="/screenshots/01_cover.jpg" alt="Reading a PDF in PDF Reader" loading="lazy"></div>
+    <div class="shot-card"><img src="/screenshots/02_metrics.jpg" alt="A PDF page with a table, shown in PDF Reader" loading="lazy"></div>
+    <div class="shot-card"><img src="/screenshots/03_annotate.jpg" alt="Annotating a PDF in PDF Reader" loading="lazy"></div>
+    <div class="shot-card"><img src="/screenshots/04_sign.jpg" alt="Signing a PDF in PDF Reader" loading="lazy"></div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-head">
+    <p class="eyebrow">Under the hood</p>
+    <h2>What "local-first" means here</h2>
+  </div>
+  <div class="cli">
+    <div><span class="k">storage</span> &rarr; <span class="v">on-device only, app-private</span></div>
+    <div><span class="k">account</span> &rarr; <span class="v">none &mdash; no sign-in</span></div>
+    <div><span class="k">ads</span> &rarr; <span class="v">one banner, consent asked where required</span></div>
+    <div><span class="k">signature</span> &rarr; <span class="v">drawn/typed, or certificate-based (PKCS#12)</span></div>
   </div>
 </div>
 
 <footer>
-  <a href="/privacy/">Privacy Policy</a>
-  &nbsp;·&nbsp;
   <span>&copy; 2026 PDF Reader</span>
+  <div class="links">
+    <a href="/privacy/">Privacy policy</a>
+  </div>
 </footer>
 
 </body>

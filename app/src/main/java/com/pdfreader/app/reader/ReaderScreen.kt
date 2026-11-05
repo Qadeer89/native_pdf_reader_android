@@ -76,6 +76,15 @@ import com.pdfreader.app.model.PdfSearchMatch
 import com.pdfreader.app.model.SignatureVerificationResult
 import com.pdfreader.app.signing.SigningIdentity
 
+/**
+ * Google Sign-In/cloud sync is configured end-to-end (auth, Firestore/Storage rules,
+ * [com.pdfreader.app.cloud.CloudSyncRepository]) but actual document sync was never wired
+ * into this UI — there is no control that uploads/downloads a document, only sign-in/out.
+ * Hidden for now rather than removed, so re-enabling it later is a one-line flip once sync
+ * is actually wired up; the underlying code is untouched.
+ */
+private const val CLOUD_SYNC_FEATURE_ENABLED = false
+
 private const val MIN_ZOOM_SCALE = 1f
 private const val MAX_ZOOM_SCALE = 5f
 private const val MARKER_RADIUS_DP = 6f
@@ -419,25 +428,27 @@ fun ReaderScreen(
                             )
                         }
                     }
-                    Box {
-                        ToolbarTextButton(
-                            label = cloudUser?.email ?: cloudUser?.displayName
-                                ?: stringResource(R.string.reader_account_signed_out),
-                            onClick = { showAccountMenu = true },
-                        )
-                        AccountMenu(
-                            expanded = showAccountMenu,
-                            cloudUser = cloudUser,
-                            onDismiss = { showAccountMenu = false },
-                            onSignInClick = {
-                                showAccountMenu = false
-                                onSignInClick()
-                            },
-                            onSignOutClick = {
-                                showAccountMenu = false
-                                onSignOutClick()
-                            },
-                        )
+                    if (CLOUD_SYNC_FEATURE_ENABLED) {
+                        Box {
+                            ToolbarTextButton(
+                                label = cloudUser?.email ?: cloudUser?.displayName
+                                    ?: stringResource(R.string.reader_account_signed_out),
+                                onClick = { showAccountMenu = true },
+                            )
+                            AccountMenu(
+                                expanded = showAccountMenu,
+                                cloudUser = cloudUser,
+                                onDismiss = { showAccountMenu = false },
+                                onSignInClick = {
+                                    showAccountMenu = false
+                                    onSignInClick()
+                                },
+                                onSignOutClick = {
+                                    showAccountMenu = false
+                                    onSignOutClick()
+                                },
+                            )
+                        }
                     }
                     Box {
                         ToolbarTextButton(

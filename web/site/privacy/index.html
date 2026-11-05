@@ -6,50 +6,100 @@
 <title>PDF Reader — Privacy Policy</title>
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
 <style>
-  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; max-width: 760px; margin: 0 auto; padding: 24px 20px 80px; line-height: 1.6; color: #1a1a1a; }
-  .back { display: inline-block; margin-bottom: 18px; color: #1a56db; text-decoration: none; font-size: 0.92em; }
-  h1 { font-size: 1.6rem; margin-top: 0; }
-  h2 { font-size: 1.15rem; margin-top: 2em; border-top: 1px solid #ddd; padding-top: 1em; }
-  .updated { color: #666; font-size: 0.9em; margin-bottom: 2em; }
-  table { width: 100%; border-collapse: collapse; margin: 1em 0; }
-  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #e3e3e3; font-size: 0.95em; vertical-align: top; }
-  th { color: #555; font-weight: 600; }
-  code { background: #f3f3f3; padding: 1px 5px; border-radius: 3px; font-size: 0.9em; }
-  a { color: #1a56db; }
+  :root {
+    --bg: #0a0d14;
+    --surface: #10141d;
+    --border: #232a3a;
+    --border-soft: #1a2030;
+    --ink: #eef1f7;
+    --ink-soft: #99a3b8;
+    --ink-faint: #5e6578;
+    --accent: #5b8cff;
+    --font-display: 'Fraunces', Georgia, serif;
+    --font-body: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'IBM Plex Mono', 'SFMono-Regular', monospace;
+  }
+  * { box-sizing: border-box; }
+  html { color-scheme: dark; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 15.5px;
+    line-height: 1.7;
+    margin: 0;
+    padding-block: 40px 90px;
+    padding-left: max(20px, env(safe-area-inset-left, 0px));
+    padding-right: max(20px, env(safe-area-inset-right, 0px));
+  }
+  .wrap { max-width: 700px; margin: 0 auto; }
+  .back {
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-bottom: 28px; color: var(--ink-soft); text-decoration: none; font-size: 13.5px;
+  }
+  .back:hover { color: var(--ink); }
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.9rem;
+    margin: 0 0 10px;
+    text-wrap: balance;
+  }
+  .updated {
+    font-family: var(--font-mono);
+    color: var(--ink-faint);
+    font-size: 12px;
+    letter-spacing: 0.02em;
+    margin: 0 0 2.5em;
+  }
+  h2 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.15rem;
+    margin: 2.2em 0 0.8em;
+    padding-top: 1.4em;
+    border-top: 0.5px solid var(--border-soft);
+  }
+  p { color: var(--ink-soft); }
+  strong { color: var(--ink); }
+  table { width: 100%; border-collapse: collapse; margin: 1.2em 0; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 0.5px solid var(--border-soft); font-size: 13.5px; vertical-align: top; }
+  th { color: var(--ink-faint); font-weight: 600; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; }
+  td { color: var(--ink-soft); }
+  code { background: var(--surface); border: 0.5px solid var(--border); padding: 1px 6px; border-radius: 5px; font-size: 0.88em; color: var(--ink); }
+  a { color: var(--accent); }
+  a:hover { text-decoration: none; }
 </style>
 </head>
 <body>
+<div class="wrap">
 <a class="back" href="/">&larr; PDF Reader</a>
-<h1>Privacy Policy — PDF Reader</h1>
+<h1>Privacy policy</h1>
 <p class="updated">Last updated: November 5, 2026</p>
 
-<p>This Privacy Policy describes how the PDF Reader Android app ("the App," package <code>com.pdfreader.app</code>) handles your information. The App is built to be <strong>local-first</strong>: opening, editing, annotating, and signing PDF files happens entirely on your device and does not require an account or an internet connection.</p>
+<p>This Privacy Policy describes how the PDF Reader Android app ("the App," package <code>com.pdfreader.app</code>) handles your information. The App is <strong>local-first</strong>: opening, editing, annotating, and signing PDF files happens entirely on your device, with no account and no internet connection required.</p>
 
 <h2>Data the App never collects</h2>
-<p>The App does not read, scan, or transmit the contents of your PDF files to us or to any third party unless you explicitly choose to use the optional cloud sync feature described below. The App does not use analytics SDKs beyond what Google's own Firebase/AdMob services report (see below). We do not sell your data.</p>
+<p>The App does not read, scan, or transmit the contents of your PDF files to us or to any third party. There is no account sign-in and no cloud storage of your documents in the current version of the App. The App does not use analytics SDKs beyond what Google's own AdMob service reports (see below). We do not sell your data.</p>
 
-<h2>Optional: Google Sign-In and cloud sync</h2>
-<p>The App includes an optional "Sign in with Google" feature. If you choose to sign in:</p>
-<table>
-<tr><th>What</th><th>Why</th></tr>
-<tr><td>Your Google account's name, email address, and profile photo</td><td>To identify your account within the App, via Firebase Authentication</td></tr>
-<tr><td>Document metadata (file name, sync status, timestamps) for documents you choose to sync</td><td>Stored in Cloud Firestore, scoped so only your account can read or write it</td></tr>
-<tr><td>The PDF file itself, for documents you choose to sync (when this feature is enabled)</td><td>Stored in Cloud Storage, scoped so only your account can read or write it</td></tr>
-</table>
-<p>Signing in is never required to use the App. Cloud-synced data is stored using Google Firebase (Firestore/Storage), protected by access rules that restrict each account to its own data only. You can delete your synced data and account at any time from within the App.</p>
+<h2>Cloud sync — not currently available</h2>
+<p>A future version of the App may offer an optional "Sign in with Google" and cloud sync feature, letting you back up chosen documents to your own Google account. That feature is not enabled in the current version — there is no sign-in option in the App, and no document data is sent anywhere. If this feature is enabled in a future release, this policy will be updated first to describe exactly what is collected and why, and signing in will always remain optional.</p>
 
 <h2>Advertising</h2>
 <p>The App shows a banner advertisement at the bottom of the reading screen, served by Google AdMob. Before any ad is requested, the App uses Google's User Messaging Platform (UMP) to ask for your consent where required (for example, under GDPR/UK rules), and respects your choice. AdMob may collect an advertising identifier and other device/usage information to select and measure ads; see <a href="https://policies.google.com/technologies/ads" target="_blank" rel="noopener">Google's advertising policy</a> for details of what Google collects and how it's used. No PDF content or document data is ever shared with the advertising SDK.</p>
 
 <h2>Device permissions</h2>
-<p>The App requests access to files/documents you explicitly open via the Android system file picker, and internet access (needed for sign-in, cloud sync, and ads). The App does not request broad storage access, camera, microphone, contacts, or location.</p>
+<p>The App requests access to files/documents you explicitly open via the Android system file picker, and internet access (needed only for ads). The App does not request broad storage access, camera, microphone, contacts, or location.</p>
 
 <h2>Local-only data</h2>
-<p>Saved signatures, signing identities, and recent-document history are stored only on your device (in app-private storage) and are not backed up or synced anywhere unless you explicitly enable cloud sync for a specific document.</p>
+<p>Saved signatures, signing identities, and recent-document history are stored only on your device, in app-private storage. Nothing is backed up or sent anywhere.</p>
 
 <h2>Data deletion</h2>
-<p>You can delete a signing identity or saved signature at any time from within the App. If you have signed in and synced documents to the cloud, deleting your account from within the App removes your synced documents, metadata, and account record from our servers.</p>
+<p>You can delete a signing identity or saved signature at any time from within the App.</p>
 
 <h2>Children's privacy</h2>
 <p>The App is not directed at children under 13 and does not knowingly collect personal information from children.</p>
@@ -59,6 +109,6 @@
 
 <h2>Contact</h2>
 <p>Questions about this policy can be sent to the developer via the contact details listed on the App's Google Play Store page.</p>
-
+</div>
 </body>
 </html>
