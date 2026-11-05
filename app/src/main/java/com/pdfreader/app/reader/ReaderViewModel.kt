@@ -87,6 +87,14 @@ class ReaderViewModel(
     private val pkcs12Loader: Pkcs12SigningMaterialLoader,
     private val bytesUriReader: BytesUriReader,
     private val fixtureAssetPath: String = "fixtures/sample.pdf",
+    /**
+     * Test-only escape hatch: when true and there's no previously-open document to restore,
+     * [init] loads the bundled [fixtureAssetPath] fixture instead of showing [ReaderUiState.Empty].
+     * Production (see `MainActivity`) never passes this, so a fresh install shows the real
+     * Home/empty state rather than the smoke-test PDF; test helpers pass `true` to keep
+     * exercising the fixture-driven state machine without touching every test case.
+     */
+    private val loadFixtureOnEmptyStartup: Boolean = false,
     private val clock: () -> Long = System::currentTimeMillis,
     private val savedStateHandle: SavedStateHandle = SavedStateHandle(),
 ) : ViewModel() {
@@ -265,8 +273,10 @@ class ReaderViewModel(
             // [openSource], so a subsequent fresh [openDocument] doesn't also jump pages.
             restorePendingPageIndex = savedStateHandle.get<Int>(KEY_LAST_PAGE_INDEX)
             openDocument(Uri.parse(restoredUri))
-        } else {
+        } else if (loadFixtureOnEmptyStartup) {
             loadFixture()
+        } else {
+            _uiState.value = ReaderUiState.Empty
         }
         viewModelScope.launch { refreshSavedSignatures() }
         viewModelScope.launch { refreshSigningIdentities() }

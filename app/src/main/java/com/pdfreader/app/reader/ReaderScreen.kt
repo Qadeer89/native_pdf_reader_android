@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -23,6 +24,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -466,7 +468,13 @@ fun ReaderScreen(
         },
         bottomBar = {
             if (!fullScreen) {
-                androidx.compose.foundation.layout.Column {
+                // Issue 2 fix: targetSdk 35+ forces edge-to-edge, so content is no longer
+                // automatically kept clear of the system (gesture or 3-button) navigation bar —
+                // without this padding the banner ad's lower portion renders underneath it and
+                // is both visually clipped and untappable at its true bottom edge.
+                androidx.compose.foundation.layout.Column(
+                    modifier = Modifier.navigationBarsPadding(),
+                ) {
                     if (state is ReaderUiState.Loaded && layoutMode == PageLayoutMode.SINGLE) {
                         PageNavigationBar(
                             onPrevious = viewModel::previousPage,
@@ -501,6 +509,14 @@ fun ReaderScreen(
                             .align(Alignment.Center)
                             .padding(24.dp),
                         style = MaterialTheme.typography.bodyLarge,
+                    )
+                }
+
+                is ReaderUiState.Empty -> {
+                    HomeEmptyState(
+                        recentDocuments = recentDocuments,
+                        onOpenDocumentClick = onOpenDocumentClick,
+                        onDocumentSelected = viewModel::openRecentDocument,
                     )
                 }
 
@@ -1170,6 +1186,68 @@ private fun DocumentPropertiesDialog(state: ReaderUiState.Loaded, onDismiss: () 
             }
         },
     )
+}
+
+/**
+ * Production first-launch/empty Home state (Issue 1/3 of the Play Store readiness pass):
+ * shown instead of silently auto-opening the bundled smoke-test fixture when there's no
+ * document to restore. Offers the same "Open PDF" action as the toolbar, plus the user's
+ * real recent documents (if any) so returning to a previously opened file doesn't require
+ * reaching for the file picker again.
+ */
+@Composable
+private fun HomeEmptyState(
+    recentDocuments: List<RecentDocumentEntity>,
+    onOpenDocumentClick: () -> Unit,
+    onDocumentSelected: (String) -> Unit,
+) {
+    androidx.compose.foundation.layout.Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        androidx.compose.foundation.layout.Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = stringResource(R.string.reader_empty_title),
+                style = MaterialTheme.typography.headlineSmall,
+            )
+            Text(
+                text = stringResource(R.string.reader_empty_subtitle),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 8.dp, bottom = 24.dp),
+            )
+            Button(onClick = onOpenDocumentClick) {
+                Text(stringResource(R.string.reader_empty_open_action))
+            }
+        }
+        if (recentDocuments.isNotEmpty()) {
+            androidx.compose.foundation.layout.Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = stringResource(R.string.reader_empty_recent_heading),
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                    items(recentDocuments) { recent ->
+                        Text(
+                            text = recent.displayName,
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onDocumentSelected(recent.uri) }
+                                .padding(vertical = 12.dp),
+                        )
+                        HorizontalDivider()
+                    }
+                }
+            }
+        }
+    }
 }
 
 /** Dropdown of recently opened documents (PDF-004): tap to reopen, or clear the whole list. */

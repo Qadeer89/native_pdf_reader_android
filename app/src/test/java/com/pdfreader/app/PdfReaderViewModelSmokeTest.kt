@@ -143,6 +143,7 @@ class PdfReaderViewModelSmokeTest {
             signingIdentityManager = signingIdentityManager,
             pkcs12Loader = pkcs12Loader,
             bytesUriReader = bytesUriReader,
+            loadFixtureOnEmptyStartup = true,
         )
         viewModelStore.put(db.hashCode().toString(), viewModel)
         return viewModel
@@ -170,6 +171,38 @@ class PdfReaderViewModelSmokeTest {
             "AssetPdfCopier should have actually copied a non-empty fixture file",
             (openedSource as PdfSource.LocalFile).file.length() > 0,
         )
+    }
+
+    /**
+     * Production regression test: a fresh install (no restored URI, no test override) must
+     * show [ReaderUiState.Empty] — NOT the bundled smoke-test fixture — matching how
+     * `MainActivity`'s factory actually constructs [ReaderViewModel] (it never passes
+     * `loadFixtureOnEmptyStartup`, so the constructor's own default applies).
+     */
+    @Test
+    fun freshStartupWithNoRestoredDocumentShowsEmptyStateNotFixture() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, RecentDocumentsDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        openDatabases += db
+        val viewModel = ReaderViewModel(
+            pdfEngine = FakePdfEngine(pageCount = FIXTURE_PAGE_COUNT),
+            pdfEditEngine = FakePdfEditEngine(),
+            assetPdfCopier = AssetPdfCopier(context, ioDispatcher = kotlinx.coroutines.Dispatchers.Unconfined),
+            recentDocumentsRepository = RecentDocumentsRepository(db.recentDocumentDao()),
+            metadataResolver = FakeDocumentMetadataResolver(),
+            destinationWriter = FakeDestinationWriter(),
+            signatureRepository = FakeSignatureRepository(),
+            imageUriDecoder = FakeImageUriDecoder(),
+            signingIdentityManager = FakeSigningIdentityManager(),
+            pkcs12Loader = FakePkcs12SigningMaterialLoader(),
+            bytesUriReader = FakeBytesUriReader(),
+        )
+        viewModelStore.put(db.hashCode().toString(), viewModel)
+
+        val state = viewModel.uiState.value
+        assertTrue("expected Empty state but got $state", state is ReaderUiState.Empty)
     }
 
     @Test

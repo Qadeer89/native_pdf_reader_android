@@ -39,6 +39,9 @@ data class HighlightMarker(
 sealed class ReaderUiState {
     data object Loading : ReaderUiState()
 
+    /** No document is open yet — the production first-launch/empty Home state (no auto-loaded fixture). */
+    data object Empty : ReaderUiState()
+
     data class Loaded(
         val pageIndex: Int,
         val pageCount: Int,

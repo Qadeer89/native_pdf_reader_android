@@ -17,6 +17,10 @@
     <string name="reader_account_sign_out">Sign out</string>
     <string name="reader_recent_empty">No recent documents</string>
     <string name="reader_recent_clear">Clear history</string>
+    <string name="reader_empty_title">No document open</string>
+    <string name="reader_empty_subtitle">Open a PDF to start reading, annotating, or signing.</string>
+    <string name="reader_empty_open_action">Open PDF</string>
+    <string name="reader_empty_recent_heading">Recent documents</string>
     <string name="reader_properties_action">Info</string>
     <string name="reader_properties_title">Document properties</string>
     <string name="reader_properties_name">Name: %1$s</string>
