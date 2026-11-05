@@ -33,7 +33,12 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.pdfreader.app"
+        // Play Console rejected "com.pdfreader.app" as already in use (package names are
+        // globally unique and permanently reserved, even after an app is deleted) — this
+        // applicationId is the real Play Store identity. `namespace` below stays
+        // com.pdfreader.app since that's the actual Kotlin package the source lives in;
+        // Android allows the two to differ, so no source files needed renaming.
+        applicationId = "com.tetratrack.pdfreader"
         minSdk = 26
         targetSdk = 36
         versionCode = 1

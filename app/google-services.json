@@ -49,6 +49,51 @@
           ]
         }
       }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:413199071575:android:5c4944e2ed72a4aa52e612",
+        "android_client_info": {
+          "package_name": "com.tetratrack.pdfreader"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "413199071575-9apos317smq7ku00t8al2nsbc32ak06r.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.tetratrack.pdfreader",
+            "certificate_hash": "adf5ddf9324057036d8398d5dc7801171fde6766"
+          }
+        },
+        {
+          "client_id": "413199071575-jceaq2sippbrhjiogt7p96vfvoselot3.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.tetratrack.pdfreader",
+            "certificate_hash": "4971da1295239ea06cdbb54d65ae5726d44cb88b"
+          }
+        },
+        {
+          "client_id": "413199071575-fs8p7g0i0979h4c6jh0oqcef7pgqnr45.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAqI82DAKmgHxTFGgOFfmgbmbziCeeKaZg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "413199071575-fs8p7g0i0979h4c6jh0oqcef7pgqnr45.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
     }
   ],
   "configuration_version": "1"
