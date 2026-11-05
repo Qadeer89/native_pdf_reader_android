@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PDF Reader — Privacy Policy</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; max-width: 760px; margin: 0 auto; padding: 24px 20px 80px; line-height: 1.6; color: #1a1a1a; }
+  .back { display: inline-block; margin-bottom: 18px; color: #1a56db; text-decoration: none; font-size: 0.92em; }
+  h1 { font-size: 1.6rem; margin-top: 0; }
+  h2 { font-size: 1.15rem; margin-top: 2em; border-top: 1px solid #ddd; padding-top: 1em; }
+  .updated { color: #666; font-size: 0.9em; margin-bottom: 2em; }
+  table { width: 100%; border-collapse: collapse; margin: 1em 0; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #e3e3e3; font-size: 0.95em; vertical-align: top; }
+  th { color: #555; font-weight: 600; }
+  code { background: #f3f3f3; padding: 1px 5px; border-radius: 3px; font-size: 0.9em; }
+  a { color: #1a56db; }
+</style>
+</head>
+<body>
+<a class="back" href="/">&larr; PDF Reader</a>
+<h1>Privacy Policy — PDF Reader</h1>
+<p class="updated">Last updated: November 5, 2026</p>
+
+<p>This Privacy Policy describes how the PDF Reader Android app ("the App," package <code>com.pdfreader.app</code>) handles your information. The App is built to be <strong>local-first</strong>: opening, editing, annotating, and signing PDF files happens entirely on your device and does not require an account or an internet connection.</p>
+
+<h2>Data the App never collects</h2>
+<p>The App does not read, scan, or transmit the contents of your PDF files to us or to any third party unless you explicitly choose to use the optional cloud sync feature described below. The App does not use analytics SDKs beyond what Google's own Firebase/AdMob services report (see below). We do not sell your data.</p>
+
+<h2>Optional: Google Sign-In and cloud sync</h2>
+<p>The App includes an optional "Sign in with Google" feature. If you choose to sign in:</p>
+<table>
+<tr><th>What</th><th>Why</th></tr>
+<tr><td>Your Google account's name, email address, and profile photo</td><td>To identify your account within the App, via Firebase Authentication</td></tr>
+<tr><td>Document metadata (file name, sync status, timestamps) for documents you choose to sync</td><td>Stored in Cloud Firestore, scoped so only your account can read or write it</td></tr>
+<tr><td>The PDF file itself, for documents you choose to sync (when this feature is enabled)</td><td>Stored in Cloud Storage, scoped so only your account can read or write it</td></tr>
+</table>
+<p>Signing in is never required to use the App. Cloud-synced data is stored using Google Firebase (Firestore/Storage), protected by access rules that restrict each account to its own data only. You can delete your synced data and account at any time from within the App.</p>
+
+<h2>Advertising</h2>
+<p>The App shows a banner advertisement at the bottom of the reading screen, served by Google AdMob. Before any ad is requested, the App uses Google's User Messaging Platform (UMP) to ask for your consent where required (for example, under GDPR/UK rules), and respects your choice. AdMob may collect an advertising identifier and other device/usage information to select and measure ads; see <a href="https://policies.google.com/technologies/ads" target="_blank" rel="noopener">Google's advertising policy</a> for details of what Google collects and how it's used. No PDF content or document data is ever shared with the advertising SDK.</p>
+
+<h2>Device permissions</h2>
+<p>The App requests access to files/documents you explicitly open via the Android system file picker, and internet access (needed for sign-in, cloud sync, and ads). The App does not request broad storage access, camera, microphone, contacts, or location.</p>
+
+<h2>Local-only data</h2>
+<p>Saved signatures, signing identities, and recent-document history are stored only on your device (in app-private storage) and are not backed up or synced anywhere unless you explicitly enable cloud sync for a specific document.</p>
+
+<h2>Data deletion</h2>
+<p>You can delete a signing identity or saved signature at any time from within the App. If you have signed in and synced documents to the cloud, deleting your account from within the App removes your synced documents, metadata, and account record from our servers.</p>
+
+<h2>Children's privacy</h2>
+<p>The App is not directed at children under 13 and does not knowingly collect personal information from children.</p>
+
+<h2>Changes to this policy</h2>
+<p>We may update this policy as the App's features change. Material changes will be reflected by updating the "Last updated" date above.</p>
+
+<h2>Contact</h2>
+<p>Questions about this policy can be sent to the developer via the contact details listed on the App's Google Play Store page.</p>
+
+</body>
+</html>
