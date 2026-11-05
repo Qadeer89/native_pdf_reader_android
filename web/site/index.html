@@ -20,6 +20,10 @@
   .feature { background: #fff; border: 1px solid #ececec; border-radius: 14px; padding: 22px; }
   .feature h3 { margin: 0 0 8px; font-size: 1.05rem; }
   .feature p { margin: 0; color: #555; font-size: 0.92rem; line-height: 1.55; }
+  .shots-section { padding: 8px 0 56px; }
+  .shots-section h2 { text-align: center; margin: 0 0 24px; font-size: 1.4rem; }
+  .shots { display: flex; gap: 18px; overflow-x: auto; padding: 4px 20px 12px; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
+  .shots img { height: 420px; width: auto; border-radius: 14px; border: 1px solid #ececec; scroll-snap-align: start; flex-shrink: 0; }
   footer { text-align: center; padding: 32px 20px 56px; color: #777; font-size: 0.9rem; }
   footer a { color: #2b5bd7; text-decoration: none; }
   footer a:hover { text-decoration: underline; }
@@ -51,6 +55,16 @@
       <h3>Private by default</h3>
       <p>Your documents stay on your device. Signing in and cloud sync are optional, and off unless you turn them on.</p>
     </div>
+  </div>
+</div>
+
+<div class="shots-section">
+  <h2>See it in action</h2>
+  <div class="shots">
+    <img src="/screenshots/01_cover.jpg" alt="Reading a PDF in PDF Reader" loading="lazy">
+    <img src="/screenshots/02_metrics.jpg" alt="A PDF page with a table, shown in PDF Reader" loading="lazy">
+    <img src="/screenshots/03_annotate.jpg" alt="Annotating a PDF in PDF Reader" loading="lazy">
+    <img src="/screenshots/04_sign.jpg" alt="Signing a PDF in PDF Reader" loading="lazy">
   </div>
 </div>
 
