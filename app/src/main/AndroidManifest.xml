@@ -21,7 +21,7 @@
              (see DEC-004 consequence (2) in docs/DECISIONS_AND_OPEN_QUESTIONS.md). -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
-            android:value="ca-app-pub-3940256099942544~3347511713" />
+            android:value="ca-app-pub-2042589318187226~3472167025" />
 
         <activity
             android:name=".MainActivity"
